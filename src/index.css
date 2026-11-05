@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer base {
+  /* Sleek custom dark & neon blue scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #05080F;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #111827;
+    border-radius: 4px;
+    border: 1px solid #1E293B;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #00BFFF;
+  }
+
+  body {
+    background-color: #05080F;
+    color: #FFFFFF;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}

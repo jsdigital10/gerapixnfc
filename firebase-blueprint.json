@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile and role management",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "status": { "type": "string", "enum": ["pending", "active", "blocked"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role", "status"]
+    },
+    "PlaqueBatch": {
+      "title": "PlaqueBatch",
+      "description": "A batch of Pix plaques generated together",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 120 },
+        "modelId": { "type": "string" },
+        "quantity": { "type": "number", "enum": [10, 30, 50, 100] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "modelId", "quantity"]
+    },
+    "PlaqueItem": {
+      "title": "PlaqueItem",
+      "description": "Individual 10x10cm Pix plaque item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "batchId": { "type": "string" },
+        "userId": { "type": "string" },
+        "number": { "type": "string" },
+        "modelId": { "type": "string" },
+        "pixType": { "type": "string" },
+        "pixKey": { "type": "string" },
+        "receiverName": { "type": "string", "maxLength": 25 },
+        "receiverCity": { "type": "string", "maxLength": 15 },
+        "payload": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "batchId", "userId", "number", "payload"]
+    },
+    "BiositeItem": {
+      "title": "BiositeItem",
+      "description": "NFC Pix biosite landing page configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "receiverName": { "type": "string", "maxLength": 50 },
+        "bank": { "type": "string" },
+        "pixType": { "type": "string" },
+        "pixKey": { "type": "string" },
+        "theme": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "receiverName", "bank", "pixKey", "theme"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile documents"
+    },
+    "/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/PlaqueBatch" },
+      "description": "Batches of generated plaques"
+    },
+    "/plaques/{plaqueId}": {
+      "schema": { "$ref": "#/entities/PlaqueItem" },
+      "description": "Individual plaque documents"
+    },
+    "/biosites/{biositeId}": {
+      "schema": { "$ref": "#/entities/BiositeItem" },
+      "description": "NFC Pix biosites"
+    }
+  }
+}

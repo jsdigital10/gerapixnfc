@@ -1,0 +1,8 @@
+{
+  "name": "GERAPIX PRO — Gerador de Plaquinhas Pix & Biosite NFC",
+  "description": "Sistema profissional para geração de plaquinhas Pix em lote (PDF A4 10x10cm) e biosites NFC para cópia rápida de chave Pix.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
