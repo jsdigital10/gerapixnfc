@@ -2,7 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -14,8 +23,10 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.email.lower() == 'jeannmkt2@gmail.com' ||
-        request.auth.token.email.lower() == 'jeanncarllostk00@gmail.com'
+        (request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'jeannmkt2@gmail.com' ||
+          request.auth.token.email.lower() == 'jeanncarllostk00@gmail.com'
+        ))
       );
     }
 
@@ -27,56 +38,91 @@ service cloud.firestore {
       );
     }
 
+    // Startup connection check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    match /system_health/ping {
+      allow get: if isAuthenticated();
+    }
+
     // Users Collection
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && (
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId) && (
         (request.resource.data.role == 'user' && request.resource.data.status == 'pending') ||
         isAdmin()
       );
-      // User cannot elevate their own role or status
-      allow update: if isAdmin() || (
+      allow update: if isValidId(userId) && (isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.status == resource.data.status
-      );
+      ));
       allow delete: if isAdmin();
     }
 
     // Batches Collection
     match /batches/{batchId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isApprovedUser() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isValidId(batchId) && isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(batchId) && isApprovedUser() && request.resource.data.userId == request.auth.uid;
+      allow update: if isValidId(batchId) && isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId) ||
+        isAdmin()
+      );
+      allow delete: if isValidId(batchId) && isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
-    // Plaques Collection (Public read for dynamic QR scanning /p/:plaqueId)
+    // Plaques Collection (Public get for permanent plaque lookup)
     match /plaques/{plaqueId} {
-      allow read: if true;
-      allow create: if isApprovedUser() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isValidId(plaqueId);
+      allow list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(plaqueId) && isApprovedUser() && request.resource.data.userId == request.auth.uid;
+      allow update: if isValidId(plaqueId) && isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId) ||
+        isAdmin()
+      );
+      allow delete: if isValidId(plaqueId) && isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
-    // Biosites Collection (Public read for NFC/QR web biosite visitors)
+    // Biosites Collection (Public get for NFC tag visitors at /b/:biositeId)
     match /biosites/{biositeId} {
-      allow read: if true;
-      allow create: if isApprovedUser() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isValidId(biositeId);
+      allow list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(biositeId) && isApprovedUser() && request.resource.data.userId == request.auth.uid;
+      allow update: if isValidId(biositeId) && isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId) ||
+        isAdmin()
+      );
+      allow delete: if isValidId(biositeId) && isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Per-user PSP Integration Settings
+    match /integration_settings/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create, update: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // System Monotonic Counters
+    match /system_counters/{counterId} {
+      allow get: if isValidId(counterId) && isAuthenticated();
+      allow create, update: if isValidId(counterId) && isApprovedUser();
+      allow delete: if isAdmin();
     }
 
     // Graphic Models Config Collection
     match /models/{modelId} {
-      allow read: if isAuthenticated();
+      allow get, list: if isAuthenticated();
       allow write: if isAdmin();
     }
 
     // Activity Logs Collection
     match /activity/{activityId} {
-      allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow get, list: if isAdmin();
+      allow create: if isValidId(activityId) && isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
   }

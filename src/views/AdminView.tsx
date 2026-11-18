@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { UserProfile, UserStatus, PlaqueModelConfig, ActivityLog } from '../types';
+import { UserProfile, UserStatus, PlaqueModelConfig, ActivityLog, QRWhiteBox } from '../types';
 import {
   fetchAllUsers,
   updateUserStatus,
@@ -31,6 +31,8 @@ import {
   Activity,
   CheckCircle2,
   AlertCircle,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 export function AdminView() {
@@ -138,6 +140,40 @@ export function AdminView() {
     }
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        setCalibratingModel((prev) => ({
+          ...prev,
+          imageUrl: dataUrl,
+        }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const updateWhiteBox = (patch: Partial<QRWhiteBox>) => {
+    const currentWb = calibratingModel.whiteBox || {
+      boxX: 468,
+      boxY: 432,
+      boxWidth: 220,
+      boxHeight: 220,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    };
+    setCalibratingModel((prev) => ({
+      ...prev,
+      whiteBox: {
+        ...currentWb,
+        ...patch,
+      },
+    }));
+  };
+
   const handleSaveModelCalibration = () => {
     const updated = [...modelConfigs];
     updated[selectedModelIdx] = calibratingModel;
@@ -201,7 +237,7 @@ export function AdminView() {
             Painel do Administrador Oficial
           </h1>
           <p className="text-xs text-neutral-400">
-            Aprovação de usuários, bloqueio/reativação, calibração visual dos 5 modelos e auditoria.
+            Aprovação de usuários, bloqueio/reativação, calibração visual dos 8 modelos e auditoria.
           </p>
         </div>
 
@@ -239,7 +275,7 @@ export function AdminView() {
       <div className="flex border-b border-[#1E293B] gap-2 overflow-x-auto pb-1">
         {[
           { id: 'users', label: '1. Gestão de Usuários', icon: Users, badge: pendingCount > 0 ? pendingCount : null },
-          { id: 'models', label: '2. Calibração dos 5 Modelos QR', icon: Sliders, badge: null },
+          { id: 'models', label: '2. Calibração dos 8 Modelos QR', icon: Sliders, badge: null },
           { id: 'connection', label: '3. Diagnóstico Firebase', icon: Activity, badge: null },
           { id: 'logs', label: '4. Log de Atividades', icon: History, badge: null },
           { id: 'setup', label: '5. Setup Admin & Claims', icon: Code, badge: null },
@@ -426,18 +462,33 @@ export function AdminView() {
         </div>
       )}
 
-      {/* TAB 2: MODEL CALIBRATION */}
+      {/* TAB 2: MODEL CALIBRATION & ARTWORK REPLACEMENT */}
       {activeTab === 'models' && (
         <div className="space-y-6">
           <div className="bg-[#111827] border border-[#1E293B] p-6 rounded-2xl">
-            <h2 className="text-lg font-bold text-white mb-1">
-              Calibração Visual dos Modelos Gráficos
-            </h2>
-            <p className="text-xs text-neutral-400">
-              Ajuste com precisão a posição horizontal, vertical, tamanho, máscara de limpeza do QR demo anterior e numeração para cada um dos 5 modelos.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">
+                  Gerenciamento de Artes & Container do QR Code
+                </h2>
+                <p className="text-xs text-neutral-400">
+                  Substitua os arquivos de imagem das artes oficiais e calibre o box container branco onde o QR Code bancário é renderizado sem cobrir nenhum texto.
+                </p>
+              </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
+              <label className="flex items-center gap-2 px-4 py-2.5 bg-[#00BFFF] hover:bg-[#38BDF8] text-black font-black text-xs rounded-xl transition cursor-pointer shadow-[0_2px_15px_rgba(0,191,255,0.35)] shrink-0">
+                <Upload className="w-4 h-4" />
+                <span>Substituir Imagem da Arte</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mt-4">
               {modelConfigs.map((m, idx) => (
                 <button
                   key={m.id}
@@ -449,7 +500,7 @@ export function AdminView() {
                   }`}
                 >
                   <div className="text-[11px] font-black truncate">{m.name.split('—')[0]}</div>
-                  <div className="text-[9px] text-neutral-500 truncate">{m.category}</div>
+                  <div className="text-[9px] text-neutral-500 truncate">{m.name.split('—')[1]?.trim() || ''}</div>
                 </button>
               ))}
             </div>
@@ -458,15 +509,18 @@ export function AdminView() {
           {savedCalibrationNotice && (
             <div className="p-3 bg-emerald-950/50 border border-emerald-800 text-emerald-300 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span>Calibração salva com sucesso! Todos os novos lotes utilizarão estas coordenadas.</span>
+              <span>Configuração do modelo salva com sucesso! O novo layout já está ativo para todos os lotes e impressões.</span>
             </div>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5 bg-[#111827] border border-[#1E293B] p-5 rounded-2xl flex flex-col items-center">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#00BFFF] mb-3">
-                Prévia Fiel da Plaquinha em Tempo Real
-              </span>
+              <div className="w-full flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#00BFFF]">
+                  Prévia Fiel em Tempo Real
+                </span>
+                <span className="text-[10px] text-neutral-400 font-mono">10x10 cm • 1200 DPI</span>
+              </div>
 
               {calibrationPreviewUrl ? (
                 <div className="w-full max-w-[340px] aspect-square rounded-2xl overflow-hidden bg-black border border-[#1E293B] shadow-2xl relative">
@@ -482,151 +536,177 @@ export function AdminView() {
                 </div>
               )}
 
-              <p className="text-[11px] text-neutral-400 mt-3 text-center">
-                O QR antigo foi coberto pela máscara e substituído por este QR Pix dinâmico.
-              </p>
+              {/* Safety clearances verification */}
+              <div className="w-full mt-4 bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 space-y-2 text-[11px]">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Verificação de Espaçamento Seguro:</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Abaixo de "PAGUE COM PIX":</span>
+                  <span className="text-emerald-400 font-mono font-bold">
+                    +{(calibratingModel.whiteBox?.boxY ?? 570) - 500}px de folga
+                  </span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Acima de "APONTE A SUA CÂMERA":</span>
+                  <span className="text-emerald-400 font-mono font-bold">
+                    +{1050 - ((calibratingModel.whiteBox?.boxY ?? 570) + (calibratingModel.whiteBox?.boxHeight ?? 460))}px de folga
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="lg:col-span-7 bg-[#111827] border border-[#1E293B] p-6 rounded-2xl space-y-5">
-              <h3 className="text-sm font-bold text-white flex items-center justify-between border-b border-[#1E293B] pb-3">
-                <span>Ajustes Finos de Posicionamento</span>
+              <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+                <h3 className="text-sm font-bold text-white">
+                  Geometria do Box Container Branco
+                </h3>
                 <span className="text-xs text-[#00BFFF] font-mono">{calibratingModel.name}</span>
-              </h3>
-
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-neutral-300">Posição Horizontal do QR Code (X):</span>
-                  <span className="text-[#00BFFF] font-mono">{calibratingModel.qrX}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={calibratingModel.qrX}
-                  onChange={(e) =>
-                    setCalibratingModel({ ...calibratingModel, qrX: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-[#00BFFF] cursor-pointer"
-                />
               </div>
 
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-neutral-300">Posição Vertical do QR Code (Y):</span>
-                  <span className="text-[#00BFFF] font-mono">{calibratingModel.qrY}%</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-neutral-300">Posição Horizontal (boxX):</span>
+                    <span className="text-[#00BFFF] font-mono">{calibratingModel.whiteBox?.boxX ?? 650}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="450"
+                    max="850"
+                    value={calibratingModel.whiteBox?.boxX ?? 650}
+                    onChange={(e) => updateWhiteBox({ boxX: parseInt(e.target.value) })}
+                    className="w-full accent-[#00BFFF] cursor-pointer"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={calibratingModel.qrY}
-                  onChange={(e) =>
-                    setCalibratingModel({ ...calibratingModel, qrY: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-[#00BFFF] cursor-pointer"
-                />
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-neutral-300">Posição Vertical (boxY):</span>
+                    <span className="text-[#00BFFF] font-mono">{calibratingModel.whiteBox?.boxY ?? 570}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="450"
+                    max="750"
+                    value={calibratingModel.whiteBox?.boxY ?? 570}
+                    onChange={(e) => updateWhiteBox({ boxY: parseInt(e.target.value) })}
+                    className="w-full accent-[#00BFFF] cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-neutral-300">Largura do Container (boxWidth):</span>
+                    <span className="text-[#00BFFF] font-mono">{calibratingModel.whiteBox?.boxWidth ?? 480}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="300"
+                    max="600"
+                    value={calibratingModel.whiteBox?.boxWidth ?? 480}
+                    onChange={(e) => updateWhiteBox({ boxWidth: parseInt(e.target.value) })}
+                    className="w-full accent-[#00BFFF] cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-neutral-300">Altura do Container (boxHeight):</span>
+                    <span className="text-[#00BFFF] font-mono">{calibratingModel.whiteBox?.boxHeight ?? 460}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="300"
+                    max="600"
+                    value={calibratingModel.whiteBox?.boxHeight ?? 460}
+                    onChange={(e) => updateWhiteBox({ boxHeight: parseInt(e.target.value) })}
+                    className="w-full accent-[#00BFFF] cursor-pointer"
+                  />
+                </div>
               </div>
 
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-neutral-300">Tamanho do QR Code:</span>
-                  <span className="text-[#00BFFF] font-mono">{calibratingModel.qrSize}%</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[#1E293B]">
+                <div>
+                  <div className="flex justify-between text-xs font-semibold mb-1">
+                    <span className="text-neutral-300">Margem Interna Segura (innerPadding):</span>
+                    <span className="text-[#00BFFF] font-mono">{calibratingModel.whiteBox?.innerPadding ?? 24}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="8"
+                    max="48"
+                    value={calibratingModel.whiteBox?.innerPadding ?? 24}
+                    onChange={(e) => updateWhiteBox({ innerPadding: parseInt(e.target.value) })}
+                    className="w-full accent-[#00BFFF] cursor-pointer"
+                  />
+                  <p className="text-[10px] text-neutral-500 mt-1">
+                    Mantém os módulos do QR afastados das bordas do container.
+                  </p>
                 </div>
-                <input
-                  type="range"
-                  min="20"
-                  max="80"
-                  value={calibratingModel.qrSize}
-                  onChange={(e) =>
-                    setCalibratingModel({ ...calibratingModel, qrSize: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-[#00BFFF] cursor-pointer"
-                />
-              </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1E293B]">
                 <div>
                   <label className="block text-xs font-semibold text-neutral-300 mb-1">
-                    Cor da Máscara:
+                    Cor de Fundo do Box:
                   </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
-                      value={calibratingModel.maskBg || '#05080F'}
-                      onChange={(e) =>
-                        setCalibratingModel({ ...calibratingModel, maskBg: e.target.value })
-                      }
+                      value={calibratingModel.whiteBox?.boxBg || '#FFFFFF'}
+                      onChange={(e) => updateWhiteBox({ boxBg: e.target.value })}
                       className="w-9 h-9 rounded border border-[#1E293B] bg-transparent cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={calibratingModel.maskBg || '#05080F'}
-                      onChange={(e) =>
-                        setCalibratingModel({ ...calibratingModel, maskBg: e.target.value })
-                      }
+                      value={calibratingModel.whiteBox?.boxBg || '#FFFFFF'}
+                      onChange={(e) => updateWhiteBox({ boxBg: e.target.value })}
                       className="flex-1 bg-[#0A0E17] border border-[#1E293B] rounded-lg p-2 text-xs font-mono text-white"
                     />
                   </div>
                 </div>
+              </div>
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-neutral-300">Margem da Máscara:</span>
-                    <span className="text-neutral-400 font-mono">{calibratingModel.maskPadding}px</span>
+              <div className="pt-2 border-t border-[#1E293B]">
+                <h4 className="text-xs font-bold text-white mb-3">Posicionamento da Numeração Serial</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-neutral-300">Posição Horizontal (X):</span>
+                      <span className="text-[#00BFFF] font-mono">{calibratingModel.numberX}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={calibratingModel.numberX}
+                      onChange={(e) =>
+                        setCalibratingModel({ ...calibratingModel, numberX: parseFloat(e.target.value) })
+                      }
+                      className="w-full accent-[#00BFFF] cursor-pointer"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="30"
-                    value={calibratingModel.maskPadding}
-                    onChange={(e) =>
-                      setCalibratingModel({
-                        ...calibratingModel,
-                        maskPadding: parseInt(e.target.value),
-                      })
-                    }
-                    className="w-full accent-[#00BFFF] cursor-pointer mt-2"
-                  />
+
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-neutral-300">Posição Vertical (Y):</span>
+                      <span className="text-[#00BFFF] font-mono">{calibratingModel.numberY}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={calibratingModel.numberY}
+                      onChange={(e) =>
+                        setCalibratingModel({ ...calibratingModel, numberY: parseFloat(e.target.value) })
+                      }
+                      className="w-full accent-[#00BFFF] cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1E293B]">
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-neutral-300">Posição Numeração (X):</span>
-                    <span className="text-[#00BFFF] font-mono">{calibratingModel.numberX}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={calibratingModel.numberX}
-                    onChange={(e) =>
-                      setCalibratingModel({ ...calibratingModel, numberX: parseFloat(e.target.value) })
-                    }
-                    className="w-full accent-[#00BFFF] cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-neutral-300">Posição Numeração (Y):</span>
-                    <span className="text-[#00BFFF] font-mono">{calibratingModel.numberY}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={calibratingModel.numberY}
-                    onChange={(e) =>
-                      setCalibratingModel({ ...calibratingModel, numberY: parseFloat(e.target.value) })
-                    }
-                    className="w-full accent-[#00BFFF] cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-3">
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-[#1E293B]">
                 <button
                   type="button"
                   onClick={() => setCalibratingModel(DEFAULT_PLAQUE_MODELS[selectedModelIdx])}
@@ -641,7 +721,7 @@ export function AdminView() {
                   className="flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] hover:from-[#38BDF8] hover:to-[#00BFFF] active:scale-[0.98] text-black font-black text-xs rounded-xl shadow-[0_2px_15px_rgba(0,191,255,0.35)] transition cursor-pointer"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Salvar Calibração do Modelo</span>
+                  <span>Salvar Configurações do Modelo</span>
                 </button>
               </div>
             </div>

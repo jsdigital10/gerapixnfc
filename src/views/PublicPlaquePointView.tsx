@@ -193,14 +193,21 @@ export function PublicPlaquePointView({ plaqueId }: PublicPlaquePointViewProps) 
     );
   }
 
-  const emvCode = plaque.payload || generatePixPayload({
-    pixType: plaque.pixType,
-    pixKey: plaque.pixKey,
-    receiverName: plaque.receiverName,
-    receiverCity: plaque.receiverCity || 'SAO PAULO',
-    amount: plaque.amount,
-    txId: plaque.txId,
-  });
+  if (plaque.pixStatus === 'unlinked' || !plaque.pixKey?.trim()) {
+    return (
+      <div className="min-h-screen bg-[#05080F] text-white flex flex-col items-center justify-center p-4">
+        <div className="bg-[#111827] border border-amber-800/60 rounded-3xl p-8 max-w-sm w-full text-center space-y-4 shadow-2xl">
+          <QrCode className="w-12 h-12 text-amber-400 mx-auto" />
+          <h2 className="text-lg font-black text-white">
+            Plaquinha {plaque.permanentId || plaque.number}
+          </h2>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            Esta plaquinha ainda aguarda vinculação de chave Pix pelo painel em Meus Lotes.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#05080F] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">

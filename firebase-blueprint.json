@@ -24,6 +24,7 @@
         "userId": { "type": "string" },
         "name": { "type": "string", "maxLength": 120 },
         "modelId": { "type": "string" },
+        "modelSnapshot": { "type": "object" },
         "quantity": { "type": "number", "enum": [10, 30, 50, 100] },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
@@ -36,19 +37,26 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "permanentId": { "type": "string" },
+        "qrId": { "type": "string" },
         "batchId": { "type": "string" },
         "userId": { "type": "string" },
         "number": { "type": "string" },
         "modelId": { "type": "string" },
+        "modelSnapshot": { "type": "object" },
+        "pixStatus": { "type": "string", "enum": ["unlinked", "linked"] },
+        "pspSyncStatus": { "type": "string", "enum": ["pending_psp", "synced_psp", "error"] },
+        "pspLocationUrl": { "type": "string" },
         "pixType": { "type": "string" },
         "pixKey": { "type": "string" },
         "receiverName": { "type": "string", "maxLength": 25 },
         "receiverCity": { "type": "string", "maxLength": 15 },
         "payload": { "type": "string" },
+        "history": { "type": "array" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
-      "required": ["id", "batchId", "userId", "number", "payload"]
+      "required": ["id", "batchId", "userId", "number"]
     },
     "BiositeItem": {
       "title": "BiositeItem",
@@ -57,15 +65,62 @@
       "properties": {
         "id": { "type": "string" },
         "userId": { "type": "string" },
-        "receiverName": { "type": "string", "maxLength": 50 },
+        "receiverName": { "type": "string", "maxLength": 80 },
+        "businessName": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 240 },
+        "logoUrl": { "type": "string", "maxLength": 120000 },
         "bank": { "type": "string" },
         "pixType": { "type": "string" },
         "pixKey": { "type": "string" },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "instagram": { "type": "string", "maxLength": 80 },
+        "accentColor": { "type": "string", "maxLength": 20 },
+        "customButtons": { "type": "array" },
         "theme": { "type": "string" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "userId", "receiverName", "bank", "pixKey", "theme"]
+    },
+    "PixIntegrationConfig": {
+      "title": "PixIntegrationConfig",
+      "description": "Per-user Pix PSP integration and default receiver settings",
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["efi", "asaas", "mercadopago", "openpix", "custom_bacen"] },
+        "enabled": { "type": "boolean" },
+        "apiEndpoint": { "type": "string" },
+        "environment": { "type": "string", "enum": ["sandbox", "production"] },
+        "defaultReceiverName": { "type": "string", "maxLength": 25 },
+        "defaultReceiverCity": { "type": "string", "maxLength": 15 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["provider", "enabled", "defaultReceiverName", "defaultReceiverCity"]
+    },
+    "SystemCounter": {
+      "title": "SystemCounter",
+      "description": "Monotonic serial counters for unique batch numbering",
+      "type": "object",
+      "properties": {
+        "lastNumber": { "type": "number" },
+        "lastSerial": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["lastNumber", "lastSerial"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit activity entries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "action"]
     }
   },
   "firestore": {
@@ -84,6 +139,18 @@
     "/biosites/{biositeId}": {
       "schema": { "$ref": "#/entities/BiositeItem" },
       "description": "NFC Pix biosites"
+    },
+    "/integration_settings/{userId}": {
+      "schema": { "$ref": "#/entities/PixIntegrationConfig" },
+      "description": "User PSP integration and default Pix metadata"
+    },
+    "/system_counters/{counterId}": {
+      "schema": { "$ref": "#/entities/SystemCounter" },
+      "description": "Monotonic numbering counters"
+    },
+    "/activity/{activityId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "User activity logs"
     }
   }
 }

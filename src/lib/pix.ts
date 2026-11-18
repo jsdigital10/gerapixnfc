@@ -68,6 +68,181 @@ export function formatPixKey(type: PixKeyType, rawKey: string): string {
   }
 }
 
+export interface DetectedPixKey {
+  type: PixKeyType;
+  label: string;
+  formattedKey: string;
+  isValid: boolean;
+  message?: string;
+}
+
+/**
+ * Automatically detects the Pix key type from user input with zero manual configuration.
+ * Identifies Phone (celular), CPF, CNPJ, E-mail, Random EVP key, or Pix Copia e Cola payload.
+ */
+export function detectPixKeyType(rawInput: string): DetectedPixKey {
+  const clean = rawInput.trim();
+  if (!clean) {
+    return {
+      type: 'random',
+      label: 'Aguardando chave',
+      formattedKey: '',
+      isValid: false,
+      message: 'Cole ou digite CPF, CNPJ, Celular, E-mail ou Copia e Cola.',
+    };
+  }
+
+  // 1. Pix Copia e Cola (EMV Payload)
+  if (clean.startsWith('000201') || clean.includes('br.gov.bcb.pix')) {
+    const isValid = clean.startsWith('000201') && clean.length >= 30;
+    return {
+      type: 'payload',
+      label: 'Pix Copia e Cola',
+      formattedKey: clean,
+      isValid,
+      message: isValid ? undefined : 'Código Pix Copia e Cola incompleto.',
+    };
+  }
+
+  // 2. Email
+  if (clean.includes('@')) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isValid = emailRegex.test(clean);
+    return {
+      type: 'email',
+      label: 'E-mail',
+      formattedKey: clean.toLowerCase(),
+      isValid,
+      message: isValid ? undefined : 'Formato de e-mail inválido.',
+    };
+  }
+
+  // 3. Chave Aleatória (EVP / UUID)
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  if (uuidRegex.test(clean) || (clean.length === 32 && /^[0-9a-fA-F]+$/.test(clean))) {
+    return {
+      type: 'random',
+      label: 'Chave Aleatória',
+      formattedKey: clean,
+      isValid: true,
+    };
+  }
+
+  // Numbers only
+  const digitsOnly = clean.replace(/\D/g, '');
+
+  // 4. CNPJ (14 digits)
+  if (digitsOnly.length === 14) {
+    return {
+      type: 'cnpj',
+      label: 'CNPJ',
+      formattedKey: digitsOnly,
+      isValid: true,
+    };
+  }
+
+  // 5. Phone with Country Code (+55...)
+  if (clean.startsWith('+') || (digitsOnly.startsWith('55') && (digitsOnly.length === 12 || digitsOnly.length === 13))) {
+    let num = digitsOnly;
+    if (!num.startsWith('55')) num = '55' + num;
+    const isValid = num.length === 12 || num.length === 13;
+    return {
+      type: 'phone',
+      label: 'Celular (+55)',
+      formattedKey: `+${num}`,
+      isValid,
+      message: isValid ? undefined : 'Telefone deve conter DDD e número.',
+    };
+  }
+
+  // 6. 11 digits: Could be CPF or Brazilian Mobile Phone (DDD + 9xxxx-xxxx)
+  if (digitsOnly.length === 11) {
+    // If explicitly formatted as phone like "(11) 99999-9999" or "11 99999-9999", treat as phone
+    const looksLikeFormattedPhone = clean.includes('(') || clean.includes(' ');
+    const ddd = parseInt(digitsOnly.slice(0, 2), 10);
+    const ninthDigit = digitsOnly[2];
+
+    if (looksLikeFormattedPhone && ddd >= 11 && ddd <= 99 && ninthDigit === '9') {
+      return {
+        type: 'phone',
+        label: 'Celular',
+        formattedKey: `+55${digitsOnly}`,
+        isValid: true,
+      };
+    }
+
+    // Check if it's a valid CPF checksum
+    const cpfVal = validatePixKey('cpf', digitsOnly);
+    if (cpfVal.valid) {
+      return {
+        type: 'cpf',
+        label: 'CPF',
+        formattedKey: digitsOnly,
+        isValid: true,
+      };
+    }
+
+    // If CPF checksum fails, check if mobile phone (DDD 11..99 with 9 as third digit)
+    if (ddd >= 11 && ddd <= 99 && ninthDigit === '9') {
+      return {
+        type: 'phone',
+        label: 'Celular',
+        formattedKey: `+55${digitsOnly}`,
+        isValid: true,
+      };
+    }
+
+    return {
+      type: 'cpf',
+      label: 'CPF',
+      formattedKey: digitsOnly,
+      isValid: false,
+      message: cpfVal.message || 'CPF inválido.',
+    };
+  }
+
+  // 7. 10 digits: Landline with DDD
+  if (digitsOnly.length === 10) {
+    const ddd = parseInt(digitsOnly.slice(0, 2), 10);
+    if (ddd >= 11 && ddd <= 99) {
+      return {
+        type: 'phone',
+        label: 'Telefone Fixo',
+        formattedKey: `+55${digitsOnly}`,
+        isValid: true,
+      };
+    }
+  }
+
+  if (digitsOnly.length > 0 && digitsOnly.length < 11) {
+    return {
+      type: 'phone',
+      label: 'Celular ou CPF',
+      formattedKey: digitsOnly,
+      isValid: false,
+      message: 'Digite o CPF completo (11 dígitos) ou celular com DDD.',
+    };
+  }
+
+  if (digitsOnly.length > 11 && digitsOnly.length < 14) {
+    return {
+      type: 'cnpj',
+      label: 'CNPJ',
+      formattedKey: digitsOnly,
+      isValid: false,
+      message: 'CNPJ incompleto (14 dígitos esperados).',
+    };
+  }
+
+  // Fallback to random key
+  return {
+    type: 'random',
+    label: 'Chave Aleatória',
+    formattedKey: clean,
+    isValid: clean.length >= 8,
+  };
+}
+
 /**
  * Validates a Pix key format
  */
@@ -105,6 +280,9 @@ export function validatePixKey(type: PixKeyType, key: string): { valid: boolean;
       const digits = cleanKey.replace(/\D/g, '');
       if (digits.length !== 14) {
         return { valid: false, message: 'CNPJ deve conter 14 dígitos numéricos.' };
+      }
+      if (/^(\d)\1+$/.test(digits)) {
+        return { valid: false, message: 'CNPJ inválido (todos os dígitos iguais).' };
       }
       return { valid: true };
     }

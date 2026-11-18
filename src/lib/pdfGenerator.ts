@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { PlaqueItem, PlaqueModelConfig } from '../types';
-import { getStoredModelConfigs } from './modelsData';
+import { resolvePlaqueModel } from './modelsData';
 
 /**
  * Loads an image from URL and returns an HTMLImageElement
@@ -17,20 +17,36 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
+ * Determines the exact QR string to encode on the plaque:
+ * - If a valid BACEN EMV BR Code exists (either linked key or real PSP dynamic location), encodes that BR Code.
+ * - If the plaque is unlinked (no Pix key registered yet and no PSP dynamic location provisioned),
+ *   encodes the plaque's unique permanent identifier (never a Biosite URL or fake Pix key).
+ */
+export function resolvePlaqueQrContent(plaque: PlaqueItem): string {
+  const existingPayload = (plaque.payload || '').trim();
+  if (existingPayload.startsWith('000201')) {
+    return existingPayload;
+  }
+
+  const cleanKey = (plaque.pixKey || '').trim();
+  if (cleanKey.length > 0 && plaque.pixStatus !== 'unlinked') {
+    return ''; // Caller will compute synchronous/async BR Code via generatePixPayload
+  }
+
+  const permId = plaque.permanentId || plaque.number || plaque.id;
+  const qrId = plaque.qrId || `QR-${permId}`;
+  return `GERAPIX:${permId}:${qrId}`;
+}
+
+/**
  * Renders a single plaque onto a high-resolution 1200x1200 canvas
  * and returns its Data URL (high print quality ~300 DPI for 10x10 cm).
- * Accurately aligns the real QR Pix over the model's illustrative area.
  */
 export async function renderPlaqueCanvas(
   plaque: PlaqueItem,
-  model: PlaqueModelConfig
+  model?: PlaqueModelConfig
 ): Promise<string> {
-  // If the plaque has its own individual model assigned, resolve it
-  const allModels = getStoredModelConfigs();
-  const activeModel =
-    plaque.modelId && plaque.modelId !== model.id
-      ? allModels.find((m) => m.id === plaque.modelId) || model
-      : model;
+  const activeModel = resolvePlaqueModel(plaque.modelId, plaque.modelSnapshot, model);
 
   const canvas = document.createElement('canvas');
   const size = 1200; // 1200x1200 px for ultra-sharp 10x10cm printing
@@ -39,74 +55,97 @@ export async function renderPlaqueCanvas(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Falha ao inicializar o contexto 2D do Canvas.');
 
-  // 1. Draw base original model image (800x800 scaled to 1200x1200)
+  // 1. Draw exact base original model artwork
   const baseImg = await loadImage(activeModel.imageUrl);
   ctx.drawImage(baseImg, 0, 0, size, size);
 
   // 2. Compute pixel coordinates from calibrated coordinates
-  // Normalized to 800 base: scale = size / 800 = 1.5
-  const scale = size / (activeModel.width || 800);
-  
-  let qrX = (activeModel.qrX / 100) * size;
-  let qrY = (activeModel.qrY / 100) * size;
-  let qrSize = (activeModel.qrSize / 100) * size;
-  let maskPad = ((activeModel.maskPadding || 4) / 800) * size;
+  const baseDim = activeModel.width || 1254;
+  const scale = size / baseDim;
 
-  if (activeModel.qrPosition) {
-    qrX = activeModel.qrPosition.x * scale;
-    qrY = activeModel.qrPosition.y * scale;
-    qrSize = activeModel.qrPosition.size * scale;
-    maskPad = (activeModel.qrPosition.padding || 4) * scale;
+  // 3. Precision White Box Container strictly inside the inner white rounded area
+  const wb = activeModel.whiteBox || {
+    boxX: 672,
+    boxY: 594,
+    boxWidth: 448,
+    boxHeight: 416,
+    innerPadding: 16,
+    boxBg: '#FFFFFF',
+  };
+
+  const boxX = Math.round(wb.boxX * scale);
+  const boxY = Math.round(wb.boxY * scale);
+  const boxW = Math.round(wb.boxWidth * scale);
+  const boxH = Math.round(wb.boxHeight * scale);
+
+  ctx.fillStyle = wb.boxBg || '#FFFFFF';
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+
+  // 4. Center QR Code inside the container box with internal safety margin (innerPadding)
+  const innerPad = Math.round((wb.innerPadding ?? 16) * scale);
+  const qrAvailableW = Math.max(10, boxW - 2 * innerPad);
+  const qrAvailableH = Math.max(10, boxH - 2 * innerPad);
+  const qrSize = Math.min(qrAvailableW, qrAvailableH);
+  const qrX = Math.round(boxX + (boxW - qrSize) / 2);
+  const qrY = Math.round(boxY + (boxH - qrSize) / 2);
+
+  // 5. QR Content: Real BACEN EMV BR Code if linked/PSP dynamic, or exclusive permanent plaque identifier if unlinked
+  let qrContent = resolvePlaqueQrContent(plaque);
+  if (!qrContent && plaque.pixKey?.trim()) {
+    const { generatePixPayload } = await import('./pix');
+    qrContent = generatePixPayload({
+      pixType: plaque.pixType || 'random',
+      pixKey: plaque.pixKey.trim(),
+      receiverName: plaque.receiverName || 'RECEBEDOR PIX',
+      receiverCity: plaque.receiverCity || 'SAO PAULO',
+      amount: plaque.amount,
+      txId: plaque.txId || '***',
+      rawPayload: plaque.pixType === 'payload' ? plaque.pixKey : undefined,
+    });
   }
 
-  // 3. Cleanly erase previous illustrative QR code with matching background mask
-  ctx.fillStyle = activeModel.maskBg || '#FFFFFF';
-  ctx.fillRect(
-    qrX - maskPad,
-    qrY - maskPad,
-    qrSize + maskPad * 2,
-    qrSize + maskPad * 2
-  );
-
-  // 4. Generate real Pix QR Code with matching card background
-  // Dynamic pointing link allows changing the Pix key even after physical printing!
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://gerapix.pro';
-  const pointingLink = plaque.pointingUrl || `${origin}/p/${plaque.id}`;
-  const qrContent = plaque.qrMode === 'static_emv' ? plaque.payload : pointingLink;
-
-  // Using error correction level 'M' for optimal camera scanning
+  // 6. Generate crisp QR code
   const qrDataUrl = await QRCode.toDataURL(qrContent, {
     errorCorrectionLevel: 'M',
     margin: 1,
     width: Math.round(qrSize),
     color: {
       dark: '#000000',
-      light: activeModel.maskBg || '#FFFFFF',
+      light: '#FFFFFF',
     },
   });
 
   const qrImg = await loadImage(qrDataUrl);
   ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
 
-  // 5. Draw plaque numbering (#001 etc.)
+  // 7. Draw discrete plaque numbering safely at bottom center clear zone
   const numX = (activeModel.numberX / 100) * size;
   const numY = (activeModel.numberY / 100) * size;
-  const numFontSize = Math.round(((activeModel.numberSize || 20) / 800) * size);
+  const numFontSize = Math.round(((activeModel.numberSize || 18) / baseDim) * size);
 
   ctx.font = `700 ${numFontSize}px "JetBrains Mono", monospace`;
-  ctx.fillStyle = activeModel.numberColor || '#FFD600';
-  ctx.textAlign = activeModel.numberAlign || 'right';
+  ctx.fillStyle = activeModel.numberColor || '#111827';
+  ctx.textAlign = activeModel.numberAlign || 'center';
   ctx.textBaseline = 'middle';
 
-  // Subtle shadow for legibility over any background
-  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetX = 1;
-  ctx.shadowOffsetY = 1;
+  // Light text on dark band gets subtle dark contrast; dark text stays crisp without smudge
+  const isLightText =
+    activeModel.numberColor?.toUpperCase() === '#FDE047' ||
+    activeModel.numberColor?.toUpperCase() === '#FFFFFF' ||
+    activeModel.numberColor?.toUpperCase() === '#FFD600';
 
-  ctx.fillText(plaque.number, numX, numY);
+  if (isLightText) {
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+  } else {
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+  }
 
-  // Reset shadow
+  ctx.fillText(plaque.permanentId || plaque.number, numX, numY);
+
   ctx.shadowColor = 'transparent';
   ctx.shadowBlur = 0;
 
@@ -130,7 +169,6 @@ export async function generatePlaquesPdf(
   batchName: string,
   onProgress?: (progress: PdfGenerationProgress) => void
 ): Promise<Blob> {
-  const allModels = getStoredModelConfigs();
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -168,8 +206,7 @@ export async function generatePlaquesPdf(
       });
     }
 
-    // Resolve individual model for this plaque if user changed its visual layout
-    const plaqueModel = allModels.find((m) => m.id === plaque.modelId) || model;
+    const plaqueModel = resolvePlaqueModel(plaque.modelId, plaque.modelSnapshot, model);
     const imgDataUrl = await renderPlaqueCanvas(plaque, plaqueModel);
 
     const pos = slotPositions[pageSlotIndex];
@@ -203,15 +240,31 @@ export async function generatePlaquesPdf(
     doc.line(pos.x + plaqueSizeMm, pos.y + plaqueSizeMm, pos.x + plaqueSizeMm + tickLen, pos.y + plaqueSizeMm);
     doc.line(pos.x + plaqueSizeMm, pos.y + plaqueSizeMm, pos.x + plaqueSizeMm, pos.y + plaqueSizeMm + tickLen);
 
-    // Subtle footer caption with page numbering on the page
+    // Header and footer identification for print shop cutting organization
     if (pageSlotIndex === 3 || i === total - 1) {
       const pageNum = Math.floor(i / 4) + 1;
       const totalPages = Math.ceil(total / 4);
+      const pageFirstIndex = Math.floor(i / 4) * 4;
+      const firstNum = plaques[pageFirstIndex].number;
+      const lastNum = plaque.number;
+
+      // Top Sheet Header (outside cut boundary)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(
+        `FOLHA ${pageNum}/${totalPages} • LOTE: ${batchName.toUpperCase()} • PLAQUINHAS: ${firstNum} A ${lastNum} (4 UNID. POR FOLHA)`,
+        105,
+        22,
+        { align: 'center' }
+      );
+
+      // Bottom Sheet Footer (outside cut boundary)
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(130, 130, 130);
       doc.text(
-        `GERAPIX PRO — Lote: ${batchName} — Página ${pageNum} de ${totalPages} — Dimensão individual: 10x10 cm`,
+        `GERAPIX PRO — Formato padrão 10x10 cm • Corte nas marcas guias • Página ${pageNum} de ${totalPages}`,
         105,
         290,
         { align: 'center' }

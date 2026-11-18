@@ -12,23 +12,39 @@ import { MyBiositesView } from './views/MyBiositesView';
 import { AccountView } from './views/AccountView';
 import { AdminView } from './views/AdminView';
 import { ProjectDownloadView } from './views/ProjectDownloadView';
-import { PlaqueBatch } from './types';
+import { PlaqueBatch, BiositeItem } from './types';
 import { PublicPlaquePointView } from './views/PublicPlaquePointView';
+import { PublicBiositeView } from './views/PublicBiositeView';
 import { RefreshCw, QrCode } from 'lucide-react';
 
 function AppContent() {
-  const { currentUser, isApproved, isPending, isBlocked, isAdmin, loading } = useAuth();
-  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const { currentUser, isPending, isBlocked, isAdmin, loading } = useAuth();
+  const [currentTab, setCurrentTab] = useState<NavTab>('create-batch');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedBatchForDetail, setSelectedBatchForDetail] = useState<PlaqueBatch | null>(null);
+  const [editingBiosite, setEditingBiosite] = useState<BiositeItem | null>(null);
 
-  // 1. Check for public dynamic pointing URL (/p/:id or ?p=:id)
+  // 1. Check for public NFC Biosite URL (/b/:id or ?b=:id)
   const pathname = window.location.pathname;
+  const searchParams = new URLSearchParams(window.location.search);
+
+  let publicBiositeId: string | null = null;
+  if (pathname.startsWith('/b/')) {
+    publicBiositeId = pathname.replace('/b/', '').split('/')[0].trim();
+  } else if (searchParams.has('b')) {
+    publicBiositeId = searchParams.get('b');
+  }
+
+  if (publicBiositeId) {
+    return <PublicBiositeView biositeId={publicBiositeId} />;
+  }
+
+  // 2. Legacy public plaque lookup (/p/:id or ?p=:id)
   let publicPlaqueId: string | null = null;
   if (pathname.startsWith('/p/')) {
     publicPlaqueId = pathname.replace('/p/', '').split('/')[0].trim();
-  } else if (new URLSearchParams(window.location.search).has('p')) {
-    publicPlaqueId = new URLSearchParams(window.location.search).get('p');
+  } else if (searchParams.has('p')) {
+    publicPlaqueId = searchParams.get('p');
   }
 
   if (publicPlaqueId) {
@@ -49,39 +65,39 @@ function AppContent() {
     );
   }
 
-  // If not logged in, show AuthScreen (Login / Cadastro / Recuperação)
   if (!currentUser) {
     return <AuthScreen />;
   }
 
-  // If account is blocked
   if (isBlocked) {
     return <BlockedView />;
   }
 
-  // If account is pending approval (admin Jeannmkt2@gmail.com is never pending)
   if (isPending && !isAdmin) {
     return <PendingApprovalView />;
   }
 
   return (
     <div className="min-h-screen bg-[#05080F] text-neutral-100 flex flex-col">
-      {/* Top Navbar */}
       <Navbar
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onNavigateToDownload={() => setCurrentTab('download')}
       />
 
       <div className="flex-1 flex w-full">
-        {/* Left Sidebar */}
         <Sidebar
           currentTab={currentTab}
-          onSelectTab={(tab) => setCurrentTab(tab)}
+          onSelectTab={(tab) => {
+            if (tab !== 'create-biosite') {
+              setEditingBiosite(null);
+            }
+            setSelectedBatchForDetail(null);
+            setCurrentTab(tab);
+          }}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
 
-        {/* Main Content Area */}
         <main className="flex-1 p-4 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
           {currentTab === 'dashboard' && (
             <DashboardView
@@ -98,15 +114,26 @@ function AppContent() {
             <MyBatchesView
               onNavigate={(tab) => setCurrentTab(tab)}
               initialSelectedBatch={selectedBatchForDetail}
+              onClearInitialBatch={() => setSelectedBatchForDetail(null)}
             />
           )}
 
           {currentTab === 'create-biosite' && (
-            <CreateBiositeView onSuccessNavigate={(tab) => setCurrentTab(tab as any)} />
+            <CreateBiositeView
+              editingBiosite={editingBiosite}
+              onFinishEditing={() => setEditingBiosite(null)}
+              onSuccessNavigate={(tab) => setCurrentTab(tab as any)}
+            />
           )}
 
           {currentTab === 'my-biosites' && (
-            <MyBiositesView onNavigate={(tab) => setCurrentTab(tab)} />
+            <MyBiositesView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              onEditBiosite={(biosite) => {
+                setEditingBiosite(biosite);
+                setCurrentTab('create-biosite');
+              }}
+            />
           )}
 
           {currentTab === 'account' && <AccountView />}

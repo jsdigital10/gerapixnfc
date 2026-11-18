@@ -1,6 +1,38 @@
 import { BiositeItem, BiositeTheme } from '../types';
 import { BRAZILIAN_BANKS } from './bankLogos';
 
+export function getBiositePublicUrl(biositeId: string): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/b/${biositeId}`;
+  }
+  return `/b/${biositeId}`;
+}
+
+export function formatWhatsappUrl(raw?: string): string | null {
+  const clean = (raw || '').trim();
+  if (!clean) return null;
+  if (clean.startsWith('http://') || clean.startsWith('https://')) return clean;
+  const digits = clean.replace(/\D/g, '');
+  if (!digits) return null;
+  const withCountry = digits.startsWith('55') ? digits : `55${digits}`;
+  return `https://wa.me/${withCountry}`;
+}
+
+export function formatInstagramUrl(raw?: string): string | null {
+  const clean = (raw || '').trim();
+  if (!clean) return null;
+  if (clean.startsWith('http://') || clean.startsWith('https://')) return clean;
+  const handle = clean.replace(/^@/, '').replace(/\/+$/, '');
+  return handle ? `https://instagram.com/${handle}` : null;
+}
+
+export function normalizeExternalUrl(raw?: string): string {
+  const clean = (raw || '').trim();
+  if (!clean) return '#';
+  if (/^(https?:|mailto:|tel:)/i.test(clean)) return clean;
+  return `https://${clean}`;
+}
+
 function getBankSvgRaw(bankId: string): string {
   switch (bankId) {
     case 'nubank':
@@ -34,10 +66,9 @@ function getBankSvgRaw(bankId: string): string {
   }
 }
 
-/**
- * Normalizes theme name between new descriptors and legacy ids
- */
-export function normalizeTheme(theme: BiositeTheme): 'neon_banking' | 'white_luxury' | 'glass_finance' | 'cyber_pix' | 'executive_card' {
+export function normalizeTheme(
+  theme: BiositeTheme
+): 'neon_banking' | 'white_luxury' | 'glass_finance' | 'cyber_pix' | 'executive_card' {
   switch (theme) {
     case 'white_luxury':
     case 'clean_white':
@@ -58,16 +89,6 @@ export function normalizeTheme(theme: BiositeTheme): 'neon_banking' | 'white_lux
   }
 }
 
-/**
- * Generates an ultra-premium, distinctive standalone HTML for NFC Biosites.
- * Exclusively displays:
- * 1. Logomarca do banco
- * 2. Nome do recebedor
- * 3. Nome da instituição financeira
- * 4. Chave Pix
- * 5. Botão COPIAR CHAVE PIX
- * ZERO footer, zero owner info, zero admin info, zero ads.
- */
 export function generateBiositeHtml(biosite: BiositeItem): string {
   const bank = BRAZILIAN_BANKS.find((b) => b.id === biosite.bank) || {
     name: 'Instituição Bancária',
@@ -76,646 +97,71 @@ export function generateBiositeHtml(biosite: BiositeItem): string {
   };
 
   const normalized = normalizeTheme(biosite.theme);
-  const bankSvg = getBankSvgRaw(bank.id);
+  const accent = biosite.accentColor || '#00BFFF';
+  const displayName = biosite.businessName?.trim() || biosite.receiverName;
+  const description = biosite.description?.trim() || '';
+  const logoHtml = biosite.logoUrl
+    ? `<img src="${escapeHtml(biosite.logoUrl)}" alt="${escapeHtml(displayName)}" class="logo-img" />`
+    : getBankSvgRaw(bank.id);
 
-  let themeCss = '';
-  let cardHtml = '';
+  const waUrl = formatWhatsappUrl(biosite.whatsapp);
+  const igUrl = formatInstagramUrl(biosite.instagram);
+  const customButtons = (biosite.customButtons || []).filter((b) => b.label.trim() && b.url.trim());
 
-  if (normalized === 'neon_banking') {
-    // Model 01 — Neon Banking: Deep black #05080F, electric cyan #00BFFF, 3D card tilt, soft blue glow, 3D button
-    themeCss = `
-      body {
-        background: #05080F;
-        background-image: radial-gradient(circle at 50% 15%, rgba(0, 191, 255, 0.15) 0%, transparent 65%);
-        color: #FFFFFF;
-      }
-      .card-wrap {
-        perspective: 1200px;
-      }
-      .card {
-        background: linear-gradient(165deg, #0A0F1D 0%, #05080F 100%);
-        border: 1px solid rgba(0, 191, 255, 0.4);
-        border-radius: 32px;
-        padding: 40px 24px;
-        text-align: center;
-        box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.95), 0 0 35px rgba(0, 191, 255, 0.22);
-        transform: translateZ(0);
-        animation: entrance3D 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .logo-box {
-        width: 80px;
-        height: 80px;
-        margin: 0 auto 20px auto;
-        border-radius: 24px;
-        padding: 4px;
-        background: linear-gradient(135deg, rgba(0, 191, 255, 0.4) 0%, rgba(8, 124, 255, 0.1) 100%);
-        box-shadow: 0 10px 25px rgba(0, 191, 255, 0.3);
-      }
-      .receiver-name {
-        font-size: 22px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #FFFFFF;
-        margin-bottom: 4px;
-      }
-      .bank-name {
-        font-size: 13px;
-        font-weight: 700;
-        color: #00BFFF;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 24px;
-      }
-      .pix-box {
-        background: rgba(11, 17, 32, 0.8);
-        border: 1px solid rgba(0, 191, 255, 0.25);
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 24px;
-        text-align: left;
-        box-shadow: inset 0 2px 6px rgba(0,0,0,0.5);
-      }
-      .pix-box-label {
-        font-size: 10px;
-        font-weight: 800;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 6px;
-      }
-      .pix-key {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 700;
-        color: #FFFFFF;
-        word-break: break-all;
-      }
-      .copy-btn {
-        width: 100%;
-        background: linear-gradient(135deg, #00BFFF 0%, #087CFF 100%);
-        color: #000000;
-        border: none;
-        border-radius: 18px;
-        padding: 18px 24px;
-        font-size: 15px;
-        font-weight: 900;
-        letter-spacing: 0.02em;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        box-shadow: 0 10px 25px rgba(0, 191, 255, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-      }
-      .copy-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 14px 30px rgba(0, 191, 255, 0.45);
-      }
-      .copy-btn:active {
-        transform: translateY(1px);
-        box-shadow: 0 5px 15px rgba(0, 191, 255, 0.25);
-      }
-    `;
-
-    cardHtml = `
-      <div class="card-wrap">
-        <div class="card">
-          <div class="logo-box">
-            ${bankSvg}
-          </div>
-          <h1 class="receiver-name">${escapeHtml(biosite.receiverName)}</h1>
-          <p class="bank-name">${escapeHtml(bank.name)}</p>
-
-          <div class="pix-box">
-            <div class="pix-box-label">Chave Pix (${escapeHtml(biosite.pixType.toUpperCase())})</div>
-            <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
-          </div>
-
-          <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            <span id="btnText">COPIAR CHAVE PIX</span>
-          </button>
-        </div>
+  const linksHtml = `
+    ${waUrl || igUrl ? `
+      <div class="social-row">
+        ${waUrl ? `<a href="${escapeHtml(waUrl)}" target="_blank" rel="noopener noreferrer" class="social-btn whatsapp">WhatsApp</a>` : ''}
+        ${igUrl ? `<a href="${escapeHtml(igUrl)}" target="_blank" rel="noopener noreferrer" class="social-btn instagram">Instagram</a>` : ''}
       </div>
-    `;
-  } else if (normalized === 'white_luxury') {
-    // Model 02 — White Luxury: Pure off-white #F8FAFC, dark graphite & electric blue, floating multi-depth card, elevated button
-    themeCss = `
-      body {
-        background: #F8FAFC;
-        background-image: radial-gradient(circle at 50% 0%, rgba(8, 124, 255, 0.06) 0%, transparent 70%);
-        color: #0F172A;
-      }
-      .card {
-        background: #FFFFFF;
-        border: 1px solid rgba(226, 232, 240, 0.9);
-        border-radius: 32px;
-        padding: 42px 26px;
-        text-align: center;
-        box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.12), 0 10px 25px -10px rgba(15, 23, 42, 0.06), 0 0 1px rgba(15, 23, 42, 0.15);
-        animation: entrance3D 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .logo-box {
-        width: 76px;
-        height: 76px;
-        margin: 0 auto 20px auto;
-        padding: 4px;
-        background: #FFFFFF;
-        border-radius: 22px;
-        box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(226, 232, 240, 0.8);
-      }
-      .receiver-name {
-        font-size: 21px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #0F172A;
-        margin-bottom: 4px;
-      }
-      .bank-name {
-        font-size: 13px;
-        font-weight: 700;
-        color: #087CFF;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 24px;
-      }
-      .pix-box {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 24px;
-        text-align: left;
-      }
-      .pix-box-label {
-        font-size: 10px;
-        font-weight: 800;
-        color: #64748B;
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        margin-bottom: 5px;
-      }
-      .pix-key {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 700;
-        color: #0F172A;
-        word-break: break-all;
-      }
-      .copy-btn {
-        width: 100%;
-        background: #0F172A;
-        color: #FFFFFF;
-        border: none;
-        border-radius: 18px;
-        padding: 18px 24px;
-        font-size: 15px;
-        font-weight: 800;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.35);
-        transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-      }
-      .copy-btn:hover {
-        background: #1E293B;
-        transform: translateY(-2px);
-        box-shadow: 0 16px 32px -6px rgba(15, 23, 42, 0.45);
-      }
-      .copy-btn:active {
-        transform: translateY(1px);
-      }
-    `;
-
-    cardHtml = `
-      <div class="card">
-        <div class="logo-box">
-          ${bankSvg}
-        </div>
-        <h1 class="receiver-name">${escapeHtml(biosite.receiverName)}</h1>
-        <p class="bank-name">${escapeHtml(bank.name)}</p>
-
-        <div class="pix-box">
-          <div class="pix-box-label">Chave Pix (${escapeHtml(biosite.pixType.toUpperCase())})</div>
-          <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
-        </div>
-
-        <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span id="btnText">COPIAR CHAVE PIX</span>
-        </button>
+    ` : ''}
+    ${customButtons.length > 0 ? `
+      <div class="custom-links">
+        ${customButtons
+          .map(
+            (btn) =>
+              `<a href="${escapeHtml(normalizeExternalUrl(btn.url))}" target="_blank" rel="noopener noreferrer" class="custom-link-btn">${escapeHtml(btn.label)}</a>`
+          )
+          .join('')}
       </div>
-    `;
-  } else if (normalized === 'glass_finance') {
-    // Model 03 — Glass Finance: Deep midnight navy #030712, ambient glow, frosted glassmorphism, subtle specular highlights
-    themeCss = `
-      body {
-        background: #030712;
-        background-image: 
-          radial-gradient(circle at 20% 15%, rgba(8, 124, 255, 0.28) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(0, 191, 255, 0.18) 0%, transparent 50%);
-        color: #FFFFFF;
-      }
-      .card {
-        background: rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(28px) saturate(190%);
-        -webkit-backdrop-filter: blur(28px) saturate(190%);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 32px;
-        padding: 40px 24px;
-        text-align: center;
-        box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.85), inset 0 1px 1px rgba(255, 255, 255, 0.2);
-        animation: entrance3D 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .logo-box {
-        width: 78px;
-        height: 78px;
-        margin: 0 auto 20px auto;
-        border-radius: 22px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 4px;
-        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
-      }
-      .receiver-name {
-        font-size: 21px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #FFFFFF;
-        margin-bottom: 4px;
-      }
-      .bank-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: #38BDF8;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 24px;
-      }
-      .pix-box {
-        background: rgba(0, 0, 0, 0.35);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 24px;
-        text-align: left;
-      }
-      .pix-box-label {
-        font-size: 10px;
-        font-weight: 700;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 6px;
-      }
-      .pix-key {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 600;
-        color: #FFFFFF;
-        word-break: break-all;
-      }
-      .copy-btn {
-        width: 100%;
-        background: linear-gradient(135deg, #087CFF 0%, #0284C7 100%);
-        color: #FFFFFF;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 18px;
-        padding: 18px 24px;
-        font-size: 15px;
-        font-weight: 800;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        box-shadow: 0 12px 25px rgba(8, 124, 255, 0.35);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-      }
-      .copy-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 16px 32px rgba(8, 124, 255, 0.45);
-      }
-      .copy-btn:active {
-        transform: translateY(1px);
-      }
-    `;
+    ` : ''}
+  `;
 
-    cardHtml = `
-      <div class="card">
-        <div class="logo-box">
-          ${bankSvg}
-        </div>
-        <h1 class="receiver-name">${escapeHtml(biosite.receiverName)}</h1>
-        <p class="bank-name">${escapeHtml(bank.name)}</p>
+  const isLight = normalized === 'white_luxury';
 
-        <div class="pix-box">
-          <div class="pix-box-label">Chave Pix (${escapeHtml(biosite.pixType.toUpperCase())})</div>
-          <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
-        </div>
+  const bgCss =
+    normalized === 'white_luxury'
+      ? 'background: #F8FAFC; color: #0F172A;'
+      : normalized === 'glass_finance'
+      ? `background: #030712; background-image: radial-gradient(circle at 20% 15%, ${accent}33 0%, transparent 50%); color: #FFFFFF;`
+      : normalized === 'cyber_pix'
+      ? `background: #000000; background-image: linear-gradient(${accent}12 1px, transparent 1px), linear-gradient(90deg, ${accent}12 1px, transparent 1px); background-size: 28px 28px; color: #FFFFFF;`
+      : normalized === 'executive_card'
+      ? 'background: #07090E; color: #FFFFFF;'
+      : `background: #05080F; background-image: radial-gradient(circle at 50% 15%, ${accent}25 0%, transparent 65%); color: #FFFFFF;`;
 
-        <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span id="btnText">COPIAR CHAVE PIX</span>
-        </button>
-      </div>
-    `;
-  } else if (normalized === 'cyber_pix') {
-    // Model 04 — Cyber Pix: Pure black #000000, intense neon cyan #00BFFF, cyber grid, 3D press button with bottom bevel
-    themeCss = `
-      body {
-        background: #000000;
-        background-image: 
-          linear-gradient(rgba(0, 191, 255, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(0, 191, 255, 0.05) 1px, transparent 1px);
-        background-size: 28px 28px;
-        color: #FFFFFF;
-      }
-      .card {
-        background: #05080F;
-        border: 2px solid #00BFFF;
-        border-radius: 28px;
-        padding: 40px 24px;
-        text-align: center;
-        box-shadow: 0 0 35px rgba(0, 191, 255, 0.35), inset 0 0 15px rgba(0, 191, 255, 0.1);
-        position: relative;
-        animation: entrance3D 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .card::before {
-        content: '';
-        position: absolute;
-        top: -2px; left: 30px; right: 30px; height: 2px;
-        background: #FFFFFF;
-        box-shadow: 0 0 10px #FFFFFF;
-      }
-      .logo-box {
-        width: 76px;
-        height: 76px;
-        margin: 0 auto 20px auto;
-        border-radius: 20px;
-        padding: 3px;
-        border: 1px solid #00BFFF;
-        box-shadow: 0 0 20px rgba(0, 191, 255, 0.4);
-      }
-      .receiver-name {
-        font-size: 21px;
-        font-weight: 800;
-        letter-spacing: -0.01em;
-        color: #FFFFFF;
-        margin-bottom: 4px;
-      }
-      .bank-name {
-        font-size: 13px;
-        font-weight: 800;
-        color: #00BFFF;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 24px;
-      }
-      .pix-box {
-        background: #020408;
-        border: 1px solid #00BFFF;
-        border-radius: 16px;
-        padding: 16px;
-        margin-bottom: 24px;
-        text-align: left;
-      }
-      .pix-box-label {
-        font-size: 10px;
-        font-weight: 900;
-        color: #00BFFF;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 6px;
-      }
-      .pix-key {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 700;
-        color: #FFFFFF;
-        word-break: break-all;
-      }
-      .copy-btn {
-        width: 100%;
-        background: #00BFFF;
-        color: #000000;
-        border: none;
-        border-radius: 16px;
-        padding: 17px 24px;
-        font-size: 15px;
-        font-weight: 900;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        box-shadow: 0 5px 0 #0088cc, 0 10px 25px rgba(0, 191, 255, 0.4);
-        transition: transform 0.08s ease, box-shadow 0.08s ease;
-      }
-      .copy-btn:active {
-        transform: translateY(4px);
-        box-shadow: 0 1px 0 #0088cc, 0 4px 10px rgba(0, 191, 255, 0.3);
-      }
-    `;
-
-    cardHtml = `
-      <div class="card">
-        <div class="logo-box">
-          ${bankSvg}
-        </div>
-        <h1 class="receiver-name">${escapeHtml(biosite.receiverName)}</h1>
-        <p class="bank-name">${escapeHtml(bank.name)}</p>
-
-        <div class="pix-box">
-          <div class="pix-box-label">Chave Pix (${escapeHtml(biosite.pixType.toUpperCase())})</div>
-          <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
-        </div>
-
-        <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span id="btnText">COPIAR CHAVE PIX</span>
-        </button>
-      </div>
-    `;
-  } else {
-    // Model 05 — Executive Card: Real banking card layout (Black/Metal card), satin titanium gradient, metallic EMV security chip, asymmetric header
-    themeCss = `
-      body {
-        background: #07090E;
-        background-image: radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.04) 0%, transparent 70%);
-        color: #FFFFFF;
-      }
-      .card {
-        background: linear-gradient(145deg, #1A202C 0%, #0F141F 50%, #161D2B 100%);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 30px;
-        padding: 36px 26px;
-        box-shadow: 0 35px 70px -15px rgba(0, 0, 0, 0.95), inset 0 1px 1px rgba(255, 255, 255, 0.25);
-        position: relative;
-        animation: entrance3D 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .card-top-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 26px;
-      }
-      /* Realistic EMV Metallic Smart Chip */
-      .emv-chip {
-        width: 44px;
-        height: 34px;
-        background: linear-gradient(135deg, #ECC94B 0%, #B7791F 40%, #D69E2E 70%, #975A16 100%);
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.4);
-        position: relative;
-        overflow: hidden;
-      }
-      .emv-chip::after {
-        content: '';
-        position: absolute;
-        top: 50%; left: 0; right: 0; height: 1px;
-        background: rgba(0,0,0,0.3);
-      }
-      .emv-chip::before {
-        content: '';
-        position: absolute;
-        top: 0; bottom: 0; left: 50%; width: 1px;
-        background: rgba(0,0,0,0.3);
-      }
-      .logo-box {
-        width: 60px;
-        height: 60px;
-        border-radius: 18px;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-      }
-      .receiver-name {
-        font-size: 20px;
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #FFFFFF;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.6);
-        margin-bottom: 4px;
-        text-align: left;
-      }
-      .bank-name {
-        font-size: 12px;
-        font-weight: 700;
-        color: #A0AEC0;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 24px;
-        text-align: left;
-      }
-      .pix-box {
-        background: rgba(0, 0, 0, 0.45);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 24px;
-        text-align: left;
-      }
-      .pix-box-label {
-        font-size: 10px;
-        font-weight: 800;
-        color: #A0AEC0;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 6px;
-      }
-      .pix-key {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 14px;
-        font-weight: 700;
-        color: #ED8936;
-        word-break: break-all;
-      }
-      .copy-btn {
-        width: 100%;
-        background: linear-gradient(135deg, #2D3748 0%, #1A202C 100%);
-        color: #FFFFFF;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 18px;
-        padding: 18px 24px;
-        font-size: 15px;
-        font-weight: 800;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255,255,255,0.2);
-        transition: transform 0.15s ease, background 0.15s ease;
-      }
-      .copy-btn:hover {
-        background: linear-gradient(135deg, #374151 0%, #1F2937 100%);
-        transform: translateY(-2px);
-      }
-      .copy-btn:active {
-        transform: translateY(1px);
-      }
-    `;
-
-    cardHtml = `
-      <div class="card">
-        <div class="card-top-row">
-          <div class="emv-chip" title="Smart Card NFC"></div>
-          <div class="logo-box">
-            ${bankSvg}
-          </div>
-        </div>
-
-        <h1 class="receiver-name">${escapeHtml(biosite.receiverName)}</h1>
-        <p class="bank-name">${escapeHtml(bank.name)}</p>
-
-        <div class="pix-box">
-          <div class="pix-box-label">Chave Pix (${escapeHtml(biosite.pixType.toUpperCase())})</div>
-          <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
-        </div>
-
-        <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span id="btnText">COPIAR CHAVE PIX</span>
-        </button>
-      </div>
-    `;
-  }
+  const cardBgCss =
+    normalized === 'white_luxury'
+      ? 'background: #FFFFFF; border: 1px solid #E2E8F0; box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.12);'
+      : normalized === 'glass_finance'
+      ? 'background: rgba(15, 23, 42, 0.72); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 30px 60px -15px rgba(0,0,0,0.85);'
+      : normalized === 'cyber_pix'
+      ? `background: #05080F; border: 2px solid ${accent}; box-shadow: 0 0 32px ${accent}40;`
+      : normalized === 'executive_card'
+      ? 'background: linear-gradient(145deg, #1A202C 0%, #0F141F 50%, #161D2B 100%); border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 35px 70px -15px rgba(0,0,0,0.95);'
+      : `background: linear-gradient(165deg, #0A0F1D 0%, #05080F 100%); border: 1px solid ${accent}66; box-shadow: 0 30px 60px -15px rgba(0,0,0,0.95), 0 0 30px ${accent}33;`;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Pix — ${escapeHtml(biosite.receiverName)}</title>
+  <title>${escapeHtml(displayName)} — Pix & Contato</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       min-height: 100vh;
@@ -724,115 +170,127 @@ export function generateBiositeHtml(biosite: BiositeItem): string {
       justify-content: center;
       padding: 24px 16px;
       line-height: 1.4;
+      ${bgCss}
     }
-    .container {
-      width: 100%;
-      max-width: 380px;
-      margin: 0 auto;
+    .container { width: 100%; max-width: 400px; margin: 0 auto; }
+    .card {
+      border-radius: 30px;
+      padding: 36px 24px;
+      text-align: center;
+      ${cardBgCss}
     }
-    .bank-svg {
-      width: 100%;
-      height: 100%;
-      border-radius: 18px;
-      display: block;
-    }
-    .bank-fallback {
-      width: 100%;
-      height: 100%;
-      border-radius: 18px;
-      background: #111827;
-      color: #00BFFF;
-      font-weight: 800;
-      font-size: 18px;
+    .logo-box {
+      width: 84px;
+      height: 84px;
+      margin: 0 auto 18px auto;
+      border-radius: 22px;
+      overflow: hidden;
+      border: 2px solid ${accent}66;
+      background: ${isLight ? '#fff' : '#0A0E17'};
       display: flex;
       align-items: center;
       justify-content: center;
-      border: 1px solid #1E293B;
     }
-    .btn-icon {
-      width: 18px;
-      height: 18px;
-      shrink: 0;
+    .logo-img, .bank-svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .bank-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 900; color: ${accent}; }
+    .receiver-name { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 6px; }
+    .description { font-size: 13px; color: ${isLight ? '#475569' : '#94A3B8'}; margin-bottom: 14px; }
+    .bank-name { font-size: 11px; font-weight: 800; color: ${accent}; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 18px; }
+    .pix-box {
+      background: ${isLight ? '#F8FAFC' : 'rgba(0,0,0,0.4)'};
+      border: 1px solid ${isLight ? '#E2E8F0' : 'rgba(255,255,255,0.12)'};
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 16px;
+      text-align: left;
     }
-    .copy-btn.copied {
-      background: #10B981 !important;
-      color: #FFFFFF !important;
-      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.45) !important;
-      border-color: #10B981 !important;
+    .pix-box-label { font-size: 10px; font-weight: 800; color: ${isLight ? '#64748B' : '#94A3B8'}; text-transform: uppercase; margin-bottom: 4px; }
+    .pix-key { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; word-break: break-all; }
+    .copy-btn {
+      width: 100%;
+      background: ${accent};
+      color: #05080F;
+      border: none;
+      border-radius: 16px;
+      padding: 16px 20px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 10px 24px ${accent}40;
     }
-    @keyframes entrance3D {
-      from {
-        opacity: 0;
-        transform: translateY(24px) scale(0.97);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
+    .copy-btn.copied { background: #10B981 !important; color: #FFFFFF !important; }
+    .social-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 16px; }
+    .social-btn, .custom-link-btn {
+      display: block;
+      text-decoration: none;
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
     }
-    @media (prefers-reduced-motion: reduce) {
-      .card {
-        animation: none !important;
-      }
-      .copy-btn {
-        transition: none !important;
-      }
+    .social-btn.whatsapp { background: #16A34A; color: #FFFFFF; }
+    .social-btn.instagram { background: linear-gradient(135deg, #F58529, #DD2A7B, #8134AF); color: #FFFFFF; }
+    .custom-links { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .custom-link-btn {
+      background: ${isLight ? '#F1F5F9' : 'rgba(255,255,255,0.08)'};
+      color: ${isLight ? '#0F172A' : '#FFFFFF'};
+      border: 1px solid ${isLight ? '#CBD5E1' : 'rgba(255,255,255,0.14)'};
     }
-    ${themeCss}
   </style>
 </head>
 <body>
   <div class="container">
-    ${cardHtml}
-  </div>
+    <div class="card">
+      <div class="logo-box">${logoHtml}</div>
+      <h1 class="receiver-name">${escapeHtml(displayName)}</h1>
+      ${description ? `<p class="description">${escapeHtml(description)}</p>` : ''}
+      <p class="bank-name">${escapeHtml(bank.name)}</p>
 
+      <div class="pix-box">
+        <div class="pix-box-label">Chave Pix</div>
+        <div class="pix-key" id="pixKeyText">${escapeHtml(biosite.pixKey)}</div>
+      </div>
+
+      <button class="copy-btn" id="copyBtn" onclick="copyPixKey()">
+        <span id="btnText">COPIAR CHAVE PIX</span>
+      </button>
+
+      ${linksHtml}
+    </div>
+  </div>
   <script>
     function copyPixKey() {
       var key = document.getElementById('pixKeyText').innerText.trim();
       var btn = document.getElementById('copyBtn');
       var btnText = document.getElementById('btnText');
-
       function onSuccess() {
         btn.classList.add('copied');
         btnText.innerText = 'CHAVE COPIADA!';
-        if (navigator.vibrate) {
-          try { navigator.vibrate(50); } catch(e) {}
-        }
+        if (navigator.vibrate) { try { navigator.vibrate(50); } catch(e) {} }
         setTimeout(function() {
           btn.classList.remove('copied');
           btnText.innerText = 'COPIAR CHAVE PIX';
         }, 2200);
       }
-
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(key).then(onSuccess).catch(fallback);
-      } else {
-        fallback();
-      }
-
+      } else { fallback(); }
       function fallback() {
         var temp = document.createElement('textarea');
         temp.value = key;
         temp.style.position = 'fixed';
-        temp.style.top = '0';
-        temp.style.left = '0';
-        temp.style.width = '2em';
-        temp.style.height = '2em';
-        temp.style.padding = '0';
-        temp.style.border = 'none';
-        temp.style.outline = 'none';
-        temp.style.boxShadow = 'none';
-        temp.style.background = 'transparent';
+        temp.style.opacity = '0';
         document.body.appendChild(temp);
         temp.focus();
         temp.select();
         try {
-          var successful = document.execCommand('copy');
-          if (successful) onSuccess();
-          else prompt('Copie a chave Pix:', key);
-        } catch(e) {
-          prompt('Copie a chave Pix:', key);
-        }
+          if (document.execCommand('copy')) onSuccess();
+        } catch(e) {}
         document.body.removeChild(temp);
       }
     }

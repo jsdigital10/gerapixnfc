@@ -8,7 +8,14 @@ import {
   sendPasswordResetEmail,
   updateProfile,
 } from 'firebase/auth';
-import { auth, getOrCreateUserProfile, getFirebaseErrorMessage, ADMIN_EMAIL, ADMIN_EMAILS } from '../lib/firebase';
+import {
+  auth,
+  getOrCreateUserProfile,
+  getFirebaseErrorMessage,
+  ADMIN_EMAIL,
+  ADMIN_EMAILS,
+  syncGuestDataToUser,
+} from '../lib/firebase';
 import { UserProfile } from '../types';
 
 interface AuthContextType {
@@ -58,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const profile = await getOrCreateUserProfile(user);
           setUserProfile(profile);
+          await syncGuestDataToUser(user.uid);
         } catch (err) {
           console.error('Error fetching profile in onAuthStateChanged:', err);
         }
@@ -76,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
       const profile = await getOrCreateUserProfile(cred.user);
       setUserProfile(profile);
+      await syncGuestDataToUser(cred.user.uid);
     } catch (err: any) {
       const msg = getFirebaseErrorMessage(err);
       setError(msg);
@@ -92,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const profile = await getOrCreateUserProfile(cred.user, name.trim());
       setUserProfile(profile);
+      await syncGuestDataToUser(cred.user.uid);
     } catch (err: any) {
       const msg = getFirebaseErrorMessage(err);
       setError(msg);

@@ -35,38 +35,32 @@ export function Sidebar({ currentTab, onSelectTab, isOpen, onClose }: SidebarPro
 
   const navItems = [
     {
-      id: 'dashboard' as NavTab,
-      label: '1. Dashboard',
-      icon: LayoutDashboard,
+      id: 'create-batch' as NavTab,
+      label: '1. CRIAR PLAQUINHAS PIX',
+      icon: Layers,
       badge: null,
     },
     {
-      id: 'create-batch' as NavTab,
-      label: '2. Criar Lote Pix',
-      icon: Layers,
-      badge: '10x10cm',
-    },
-    {
       id: 'my-batches' as NavTab,
-      label: '3. Meus Lotes',
+      label: '2. MEUS LOTES',
       icon: FolderOpen,
       badge: null,
     },
     {
       id: 'create-biosite' as NavTab,
-      label: '4. Gerar Biosite NFC',
+      label: '3. CRIAR BIOSITE PIX',
       icon: Smartphone,
       badge: 'NFC',
     },
     {
       id: 'my-biosites' as NavTab,
-      label: '5. Meus Biosites',
+      label: '4. MEUS BIOSITES',
       icon: Globe2,
       badge: null,
     },
     {
       id: 'account' as NavTab,
-      label: '6. Minha Conta',
+      label: '5. MINHA CONTA',
       icon: UserCheck,
       badge: null,
     },
@@ -197,7 +191,7 @@ export function Sidebar({ currentTab, onSelectTab, isOpen, onClose }: SidebarPro
               <span>GERAPIX PRO</span>
               <span className="text-[#00BFFF]">v2.0</span>
             </div>
-            <div>A4 10x10cm & NFC Ready</div>
+            <div>Plaquinhas & NFC</div>
           </div>
         </div>
       </aside>

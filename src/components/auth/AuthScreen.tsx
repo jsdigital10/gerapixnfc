@@ -33,6 +33,20 @@ export function AuthScreen() {
           throw new Error('Preencha seu e-mail e senha.');
         }
         await login(email, password);
+
+        // Prompt modern browsers to save password via Credential Management API
+        if (typeof window !== 'undefined' && 'PasswordCredential' in window) {
+          try {
+            const credObj = new (window as any).PasswordCredential({
+              id: email.trim(),
+              password: password,
+              name: email.trim(),
+            });
+            if (navigator.credentials && navigator.credentials.store) {
+              await navigator.credentials.store(credObj);
+            }
+          } catch {}
+        }
       } else {
         if (!name.trim()) {
           throw new Error('Informe seu nome completo.');
@@ -47,6 +61,20 @@ export function AuthScreen() {
           throw new Error('As senhas digitadas não coincidem.');
         }
         await register(name, email, password);
+
+        // Prompt modern browsers to save password upon creating account
+        if (typeof window !== 'undefined' && 'PasswordCredential' in window) {
+          try {
+            const credObj = new (window as any).PasswordCredential({
+              id: email.trim(),
+              password: password,
+              name: name.trim() || email.trim(),
+            });
+            if (navigator.credentials && navigator.credentials.store) {
+              await navigator.credentials.store(credObj);
+            }
+          } catch {}
+        }
       }
     } catch (err: any) {
       setLocalError(err.message || 'Falha ao processar solicitação.');
@@ -109,18 +137,27 @@ export function AuthScreen() {
           </div>
         )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Form with browser credentials attributes for native password save prompts */}
+        <form
+          onSubmit={handleSubmit}
+          method="post"
+          action="#"
+          autoComplete="on"
+          className="space-y-4"
+        >
           {mode === 'register' && (
             <div>
-              <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+              <label htmlFor="auth-name" className="block text-xs font-semibold text-neutral-300 mb-1.5">
                 Nome
               </label>
               <div className="relative">
                 <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                 <input
+                  id="auth-name"
+                  name="name"
                   type="text"
                   required
+                  autoComplete="name"
                   placeholder="Seu nome completo"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -131,14 +168,17 @@ export function AuthScreen() {
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+            <label htmlFor="auth-email" className="block text-xs font-semibold text-neutral-300 mb-1.5">
               E-mail
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
               <input
+                id="auth-email"
+                name="email"
                 type="email"
                 required
+                autoComplete="username"
                 placeholder="seu.email@exemplo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -148,14 +188,17 @@ export function AuthScreen() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+            <label htmlFor="auth-password" className="block text-xs font-semibold text-neutral-300 mb-1.5">
               Senha
             </label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
               <input
+                id="auth-password"
+                name="password"
                 type="password"
                 required
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 placeholder="Sua senha de acesso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -166,14 +209,17 @@ export function AuthScreen() {
 
           {mode === 'register' && (
             <div>
-              <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+              <label htmlFor="auth-confirm-password" className="block text-xs font-semibold text-neutral-300 mb-1.5">
                 Confirmar Senha
               </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                 <input
+                  id="auth-confirm-password"
+                  name="confirmPassword"
                   type="password"
                   required
+                  autoComplete="new-password"
                   placeholder="Repita sua senha"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}

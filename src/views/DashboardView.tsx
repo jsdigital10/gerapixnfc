@@ -10,7 +10,7 @@ import {
   Sparkles,
   PlusCircle,
 } from 'lucide-react';
-import { DEFAULT_PLAQUE_MODELS } from '../lib/modelsData';
+import { resolvePlaqueModel } from '../lib/modelsData';
 
 interface DashboardViewProps {
   onNavigate: (tab: any) => void;
@@ -61,7 +61,7 @@ export function DashboardView({ onNavigate, onSelectBatchForDetail }: DashboardV
           </h1>
 
           <p className="text-neutral-400 text-sm md:text-base leading-relaxed mb-6">
-            Gere lotes de plaquinhas Pix no padrão gráfico oficial (PDF A4 10x10 cm, 4 por folha) com QR Code real Banco Central (EMV) e biosites ultra rápidos para tags NFC.
+            Gere lotes de plaquinhas Pix com QR Code oficial do Banco Central (EMV) e biosites para tags NFC.
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -70,7 +70,7 @@ export function DashboardView({ onNavigate, onSelectBatchForDetail }: DashboardV
               className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] hover:from-[#38BDF8] hover:to-[#00BFFF] active:scale-[0.98] text-black font-extrabold rounded-xl transition shadow-[0_4px_25px_rgba(0,191,255,0.35)] text-sm cursor-pointer"
             >
               <Layers className="w-4 h-4" />
-              <span>Criar Lote Pix (10x10cm)</span>
+              <span>Criar Lote Pix</span>
             </button>
 
             <button
@@ -115,7 +115,7 @@ export function DashboardView({ onNavigate, onSelectBatchForDetail }: DashboardV
           <div className="text-3xl font-black text-white tracking-tight">
             {loading ? '—' : totalPlaquesCount}
           </div>
-          <span className="text-[11px] text-neutral-500 mt-1 block">Unidades 10x10 cm prontas</span>
+          <span className="text-[11px] text-neutral-500 mt-1 block">Plaquinhas prontas para impressão</span>
         </div>
 
         {/* Total Biosites */}
@@ -168,7 +168,7 @@ export function DashboardView({ onNavigate, onSelectBatchForDetail }: DashboardV
           ) : (
             <div className="space-y-3">
               {batches.slice(0, 3).map((batch) => {
-                const model = DEFAULT_PLAQUE_MODELS.find((m) => m.id === batch.modelId) || DEFAULT_PLAQUE_MODELS[0];
+                const model = resolvePlaqueModel(batch.modelId, batch.modelSnapshot);
                 return (
                   <div
                     key={batch.id}

@@ -3,145 +3,297 @@ import { PlaqueModelConfig } from '../types';
 export const DEFAULT_PLAQUE_MODELS: PlaqueModelConfig[] = [
   {
     id: 'model-01',
-    name: 'Modelo 01 — Black Gold Deluxe',
-    imageUrl: '/models/model1.png',
-    width: 800,
-    height: 800,
-    // Exact calibrated QR position on the right card:
-    // (x: 384px, y: 420px, size: 288px, padding: 4px relative to 800)
-    qrX: 48.0,
-    qrY: 52.5,
-    qrSize: 36.0,
+    name: 'Modelo 01 — Amarelo & Preto',
+    imageUrl: '/models/model1_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 53.59,
+    qrY: 47.37,
+    qrSize: 33.17,
     qrPosition: {
-      x: 384,
-      y: 420,
-      size: 288,
-      padding: 4,
+      x: 688,
+      y: 610,
+      size: 384,
+      padding: 16,
     },
-    maskBg: '#FDF1E2',
-    maskPadding: 4,
-    numberX: 85,
-    numberY: 93,
-    numberColor: '#FFD600',
-    numberSize: 20,
-    numberAlign: 'right',
-    description: 'Design premium preto com acabamento em ouro e QR Code perfeitamente integrado no cartão.',
-    category: 'Premium Dark'
-  },
-  {
-    id: 'model-02',
-    name: 'Modelo 02 — Dark Tech NFC',
-    imageUrl: '/models/model2.png',
-    width: 800,
-    height: 800,
-    // (x: 382px, y: 428px, size: 288px, padding: 4px relative to 800)
-    qrX: 47.75,
-    qrY: 53.5,
-    qrSize: 36.0,
-    qrPosition: {
-      x: 382,
-      y: 428,
-      size: 288,
-      padding: 4,
-    },
-    maskBg: '#F2EAFE',
-    maskPadding: 4,
-    numberX: 85,
-    numberY: 93,
-    numberColor: '#00BFFF',
-    numberSize: 20,
-    numberAlign: 'right',
-    description: 'Estilo tecnológico com indicação de aproximação NFC à esquerda e QR Pix à direita.',
-    category: 'Tecnologia'
-  },
-  {
-    id: 'model-03',
-    name: 'Modelo 03 — Pix, WhatsApp & Wi-Fi',
-    imageUrl: '/models/model3.jpg',
-    width: 800,
-    height: 800,
-    // (x: 382px, y: 436px, size: 276px, padding: 4px relative to 800)
-    qrX: 47.75,
-    qrY: 54.5,
-    qrSize: 34.5,
-    qrPosition: {
-      x: 382,
-      y: 436,
-      size: 276,
-      padding: 4,
+    whiteBox: {
+      boxX: 672,
+      boxY: 594,
+      boxWidth: 448,
+      boxHeight: 416,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
     },
     maskBg: '#FFFFFF',
     maskPadding: 4,
-    numberX: 85,
-    numberY: 93,
-    numberColor: '#FFD600',
-    numberSize: 20,
-    numberAlign: 'right',
-    description: 'Modelo versátil de balcão com QR Code perfeitamente alinhado na área reservada.',
-    category: 'Comércio'
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#111827',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Amarelo ouro e preto de alto impacto visual.',
+    category: '',
+  },
+  {
+    id: 'model-02',
+    name: 'Modelo 02 — Verde Clean',
+    imageUrl: '/models/model2_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 52.63,
+    qrY: 45.93,
+    qrSize: 34.29,
+    qrPosition: {
+      x: 678,
+      y: 594,
+      size: 394,
+      padding: 18,
+    },
+    whiteBox: {
+      boxX: 660,
+      boxY: 576,
+      boxWidth: 460,
+      boxHeight: 430,
+      innerPadding: 18,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
+    maskPadding: 4,
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#064E3B',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Verde vibrante com fundo branco e moldura arredondada.',
+    category: '',
+  },
+  {
+    id: 'model-03',
+    name: 'Modelo 03 — Azul Marinho & Branco',
+    imageUrl: '/models/model3_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 54.07,
+    qrY: 46.73,
+    qrSize: 33.17,
+    qrPosition: {
+      x: 694,
+      y: 602,
+      size: 384,
+      padding: 16,
+    },
+    whiteBox: {
+      boxX: 678,
+      boxY: 586,
+      boxWidth: 436,
+      boxHeight: 416,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
+    maskPadding: 4,
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#0A2540',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Azul marinho clássico corporativo e moderno.',
+    category: '',
   },
   {
     id: 'model-04',
-    name: 'Modelo 04 — Neon Gold Luxury',
-    imageUrl: '/models/model4.png',
-    width: 800,
-    height: 800,
-    // (x: 382px, y: 422px, size: 296px, padding: 4px relative to 800)
-    qrX: 47.75,
-    qrY: 52.75,
-    qrSize: 37.0,
+    name: 'Modelo 04 — Vermelho & Branco',
+    imageUrl: '/models/model4_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 53.75,
+    qrY: 46.41,
+    qrSize: 32.22,
     qrPosition: {
-      x: 382,
-      y: 422,
-      size: 296,
-      padding: 4,
+      x: 690,
+      y: 598,
+      size: 372,
+      padding: 16,
     },
-    maskBg: '#FAF9F9',
+    whiteBox: {
+      boxX: 674,
+      boxY: 582,
+      boxWidth: 434,
+      boxHeight: 404,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
     maskPadding: 4,
-    numberX: 85,
-    numberY: 93,
-    numberColor: '#FFD600',
-    numberSize: 20,
-    numberAlign: 'right',
-    description: 'Alto contraste com borda neon e QR Code preservando a arte e textos circundantes.',
-    category: 'Neon'
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#991B1B',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Vermelho vibrante de grande visibilidade comercial.',
+    category: '',
   },
   {
     id: 'model-05',
-    name: 'Modelo 05 — Executive Banking',
-    imageUrl: '/models/model5.png',
-    width: 800,
-    height: 800,
-    // (x: 380px, y: 414px, size: 294px, padding: 4px relative to 800)
-    qrX: 47.5,
-    qrY: 51.75,
-    qrSize: 36.75,
+    name: 'Modelo 05 — Ouro & Branco',
+    imageUrl: '/models/model5_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 52.47,
+    qrY: 44.5,
+    qrSize: 36.04,
     qrPosition: {
-      x: 380,
-      y: 414,
-      size: 294,
-      padding: 4,
+      x: 676,
+      y: 576,
+      size: 416,
+      padding: 18,
     },
-    maskBg: '#F4F7FB',
+    whiteBox: {
+      boxX: 658,
+      boxY: 558,
+      boxWidth: 464,
+      boxHeight: 452,
+      innerPadding: 18,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
     maskPadding: 4,
-    numberX: 85,
-    numberY: 93,
-    numberColor: '#00BFFF',
-    numberSize: 20,
-    numberAlign: 'right',
-    description: 'Visual executivo elegante com enquadramento de QR Code milimetricamente ajustado.',
-    category: 'Corporativo'
-  }
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#1F2937',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Dourado elegante com base branca.',
+    category: '',
+  },
+  {
+    id: 'model-06',
+    name: 'Modelo 06 — Azul Onda & Dourado',
+    imageUrl: '/models/model6_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 55.34,
+    qrY: 45.93,
+    qrSize: 32.7,
+    qrPosition: {
+      x: 710,
+      y: 592,
+      size: 378,
+      padding: 16,
+    },
+    whiteBox: {
+      boxX: 694,
+      boxY: 576,
+      boxWidth: 434,
+      boxHeight: 410,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
+    maskPadding: 4,
+    numberX: 50,
+    numberY: 96.1,
+    numberColor: '#FDE047',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Design com divisor OU e ondas douradas.',
+    category: '',
+  },
+  {
+    id: 'model-07',
+    name: 'Modelo 07 — Vermelho & Preto Dark',
+    imageUrl: '/models/model7_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 54.07,
+    qrY: 46.41,
+    qrSize: 32.7,
+    qrPosition: {
+      x: 694,
+      y: 598,
+      size: 378,
+      padding: 16,
+    },
+    whiteBox: {
+      boxX: 678,
+      boxY: 582,
+      boxWidth: 434,
+      boxHeight: 410,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
+    maskPadding: 4,
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#111827',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Preto e vermelho executivo com acabamento premium.',
+    category: '',
+  },
+  {
+    id: 'model-08',
+    name: 'Modelo 08 — Ciano & Azul Tech',
+    imageUrl: '/models/model8_new.png?v=12',
+    width: 1254,
+    height: 1254,
+    qrX: 56.46,
+    qrY: 48.25,
+    qrSize: 31.74,
+    qrPosition: {
+      x: 724,
+      y: 621,
+      size: 366,
+      padding: 16,
+    },
+    whiteBox: {
+      boxX: 708,
+      boxY: 605,
+      boxWidth: 434,
+      boxHeight: 398,
+      innerPadding: 16,
+      boxBg: '#FFFFFF',
+    },
+    maskBg: '#FFFFFF',
+    maskPadding: 4,
+    numberX: 50,
+    numberY: 94.5,
+    numberColor: '#0F172A',
+    numberSize: 18,
+    numberAlign: 'center',
+    description: 'Borda azul brilhante e visual tecnológico.',
+    category: '',
+  },
 ];
 
-const LOCAL_STORAGE_MODELS_KEY = 'gerapix_custom_models_config_v2';
+export function getModelCodePrefix(modelId: string): string {
+  switch (modelId) {
+    case 'model-01': return 'M01';
+    case 'model-02': return 'M02';
+    case 'model-03': return 'M03';
+    case 'model-04': return 'M04';
+    case 'model-05': return 'M05';
+    case 'model-06': return 'M06';
+    case 'model-07': return 'M07';
+    case 'model-08': return 'M08';
+    default: return 'PLQ';
+  }
+}
+
+const LOCAL_STORAGE_MODELS_KEY = 'gerapix_custom_models_config_v12';
 
 export function getStoredModelConfigs(): PlaqueModelConfig[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_MODELS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length === DEFAULT_PLAQUE_MODELS.length && parsed[0]?.qrPosition) {
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === DEFAULT_PLAQUE_MODELS.length &&
+        parsed[0]?.whiteBox &&
+        parsed[0]?.whiteBox.boxWidth > 0
+      ) {
         return parsed;
       }
     }
@@ -157,4 +309,48 @@ export function saveStoredModelConfigs(configs: PlaqueModelConfig[]): void {
   } catch {
     // Ignore storage errors
   }
+}
+
+/**
+ * Resolves the exact visual configuration of a plaque/batch without ever
+ * substituting a different color model silently.
+ * Resolution order:
+ *   1. Exact item snapshot (if matching targetModelId)
+ *   2. Exact batch snapshot (if matching targetModelId)
+ *   3. Stored calibrated config matching targetModelId
+ *   4. Default official model matching targetModelId
+ *   5. Any valid snapshot provided
+ *   6. Default first official model (only if no modelId matches anywhere)
+ */
+export function resolvePlaqueModel(
+  targetModelId?: string,
+  primarySnapshot?: PlaqueModelConfig,
+  secondarySnapshot?: PlaqueModelConfig
+): PlaqueModelConfig {
+  const stored = getStoredModelConfigs();
+  const baseMatch =
+    stored.find((m) => m.id === targetModelId) ||
+    DEFAULT_PLAQUE_MODELS.find((m) => m.id === targetModelId);
+
+  if (
+    primarySnapshot &&
+    primarySnapshot.imageUrl &&
+    (!targetModelId || primarySnapshot.id === targetModelId)
+  ) {
+    return baseMatch ? { ...baseMatch, ...primarySnapshot } : primarySnapshot;
+  }
+
+  if (
+    secondarySnapshot &&
+    secondarySnapshot.imageUrl &&
+    (!targetModelId || secondarySnapshot.id === targetModelId)
+  ) {
+    return baseMatch ? { ...baseMatch, ...secondarySnapshot } : secondarySnapshot;
+  }
+
+  if (baseMatch) return baseMatch;
+  if (primarySnapshot?.imageUrl) return primarySnapshot;
+  if (secondarySnapshot?.imageUrl) return secondarySnapshot;
+
+  return stored[0] || DEFAULT_PLAQUE_MODELS[0];
 }
