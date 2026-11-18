@@ -4,12 +4,14 @@ import {
   PlaqueBatch,
   PlaqueItem,
   PixIntegrationConfig,
+  PixKeyType,
 } from '../types';
 import { getStoredModelConfigs, resolvePlaqueModel } from '../lib/modelsData';
 import {
   generatePixPayload,
   parsePixPayload,
   detectPixKeyType,
+  validateBrCode,
 } from '../lib/pix';
 import {
   fetchPixIntegrationConfig,
@@ -23,12 +25,16 @@ import { savePlaqueBatch, logActivity, peekNextBatchSerial } from '../lib/fireba
 import {
   generatePlaquesPdf,
   renderPlaqueCanvas,
+  resolvePlaqueQrContent,
   PdfGenerationProgress,
 } from '../lib/pdfGenerator';
 import QRCode from 'qrcode';
 import {
   Check,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Copy,
   Download,
   Eye,
   Edit2,
@@ -38,12 +44,53 @@ import {
   X,
   QrCode,
   CheckCircle2,
-  Hash,
   ArrowLeft,
   Clock,
   Layers,
   Info,
 } from 'lucide-react';
+
+function getPlaqueStatusBadge(plaque: PlaqueItem): {
+  label: string;
+  shortLabel: string;
+  tone: 'amber' | 'emerald' | 'orange' | 'sky';
+} {
+  const hasKey = Boolean(plaque.pixKey?.trim()) && plaque.pixStatus !== 'unlinked';
+  if (!hasKey && !plaque.pspLocationUrl) {
+    return { label: 'Sem chave Pix', shortLabel: 'Sem chave Pix', tone: 'amber' };
+  }
+  if (
+    plaque.qrState === 'dynamic_psp_ready' ||
+    (plaque.pspSyncStatus === 'synced_psp' && Boolean(plaque.pspLocationUrl))
+  ) {
+    return { label: 'PSP Dinâmico Pronto', shortLabel: 'PSP Dinâmico', tone: 'emerald' };
+  }
+  if (plaque.qrState === 'dynamic_psp_unsupported' || plaque.pspSyncStatus === 'error') {
+    return {
+      label: 'BR Code Gerado (Troca PSP Indisponível)',
+      shortLabel: 'Novo QR/PDF',
+      tone: 'orange',
+    };
+  }
+  return {
+    label: 'BR Code Estático (Novo QR/PDF)',
+    shortLabel: 'BR Code Estático',
+    tone: 'sky',
+  };
+}
+
+function getToneClasses(tone: 'amber' | 'emerald' | 'orange' | 'sky'): string {
+  switch (tone) {
+    case 'emerald':
+      return 'bg-emerald-950/80 text-emerald-400 border border-emerald-800';
+    case 'orange':
+      return 'bg-orange-950/80 text-orange-300 border border-orange-800/70';
+    case 'sky':
+      return 'bg-[#00BFFF]/15 text-[#00BFFF] border border-[#00BFFF]/40';
+    default:
+      return 'bg-amber-950/80 text-amber-400 border border-amber-800';
+  }
+}
 
 interface CreateBatchViewProps {
   onSuccessNavigate?: (tab: string) => void;
@@ -80,6 +127,9 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
   const [currentBatch, setCurrentBatch] = useState<PlaqueBatch | null>(null);
   const [plaquesList, setPlaquesList] = useState<PlaqueItem[]>([]);
   const [selectedPlaqueForEdit, setSelectedPlaqueForEdit] = useState<PlaqueItem | null>(null);
+  const [forcedPixType, setForcedPixType] = useState<PixKeyType | undefined>(undefined);
+  const [showBrCodeInspector, setShowBrCodeInspector] = useState<boolean>(false);
+  const [copiedBrCode, setCopiedBrCode] = useState<boolean>(false);
   const [editShowPreview, setEditShowPreview] = useState<boolean>(true);
   const [editPreviewCanvasUrl, setEditPreviewCanvasUrl] = useState<string | null>(null);
   const [editValidationError, setEditValidationError] = useState<string | null>(null);
@@ -125,7 +175,7 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
 
     let active = true;
     const rawKey = (selectedPlaqueForEdit.pixKey || '').trim();
-    const detected = detectPixKeyType(rawKey);
+    const detected = detectPixKeyType(rawKey, forcedPixType);
     const activeModel = resolvePlaqueModel(
       selectedPlaqueForEdit.modelId,
       selectedPlaqueForEdit.modelSnapshot,
@@ -162,28 +212,15 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
     return () => {
       active = false;
     };
-  }, [selectedPlaqueForEdit?.pixKey, selectedPlaqueForEdit?.modelId, editShowPreview]);
+  }, [
+    selectedPlaqueForEdit?.pixKey,
+    selectedPlaqueForEdit?.modelId,
+    forcedPixType,
+    editShowPreview,
+  ]);
 
   const handleDownloadStandaloneQrPng = async (plaque: PlaqueItem) => {
-    const cleanKey = (plaque.pixKey || '').trim();
-    const payload = (plaque.payload || '').trim();
-    let qrString = payload;
-
-    if (!qrString.startsWith('000201') && cleanKey) {
-      const detected = detectPixKeyType(cleanKey);
-      const meta = resolvePixMetadata(cleanKey);
-      qrString = generatePixPayload({
-        pixType: detected.type,
-        pixKey: detected.formattedKey || cleanKey,
-        receiverName: plaque.receiverName || meta.receiverName,
-        receiverCity: plaque.receiverCity || meta.receiverCity,
-        txId: plaque.txId || '***',
-      });
-    }
-
-    if (!qrString) {
-      qrString = `GERAPIX:${plaque.permanentId || plaque.number}:${plaque.qrId || plaque.id}`;
-    }
+    const qrString = resolvePlaqueQrContent(plaque);
 
     const dataUrl = await QRCode.toDataURL(qrString, {
       errorCorrectionLevel: 'M',
@@ -249,6 +286,7 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
         number: numStr,
         modelId: modelSnapshot.id,
         pixStatus: 'unlinked',
+        qrState: pspLocationUrl ? 'dynamic_psp_ready' : 'unlinked',
         pspSyncStatus,
         ...(pspLocationUrl ? { pspLocationUrl } : {}),
         pixType: 'random',
@@ -325,7 +363,7 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
    */
   const handleUpdatePlaque = async (updated: PlaqueItem) => {
     setEditValidationError(null);
-    const detected = detectPixKeyType(updated.pixKey);
+    const detected = detectPixKeyType(updated.pixKey, forcedPixType);
     if (!detected.isValid) {
       setEditValidationError(detected.message || 'Digite uma chave Pix válida.');
       return;
@@ -342,7 +380,7 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
         integrationConfig
       );
 
-      const newPayload = generatePixPayload({
+      const staticPayload = generatePixPayload({
         pixType: detected.type,
         pixKey: cleanKey,
         receiverName: updated.receiverName || meta.receiverName,
@@ -351,22 +389,42 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
         rawPayload: detected.type === 'payload' ? cleanKey : undefined,
       });
 
+      const finalPayload =
+        dynamicResult.dynamicUpdated && dynamicResult.dynamicPayload
+          ? dynamicResult.dynamicPayload
+          : staticPayload;
+
+      const brCheck = validateBrCode(finalPayload);
+      if (!brCheck.valid) {
+        setEditValidationError(
+          `BR Code inválido detectado antes de salvar: ${brCheck.errors[0] || 'verifique a chave.'}`
+        );
+        return;
+      }
+
       const now = new Date().toISOString();
       const fixed: PlaqueItem = {
         ...updated,
         permanentId: updated.permanentId || updated.number,
         qrId: updated.qrId || `QR-${updated.permanentId || updated.number}`,
         pixStatus: 'linked',
+        qrState: dynamicResult.qrState,
         pspSyncStatus: dynamicResult.dynamicUpdated
           ? 'synced_psp'
           : dynamicResult.pspConfigured
           ? 'error'
           : 'pending_psp',
+        ...(dynamicResult.pspErrorMessage
+          ? { pspErrorMessage: dynamicResult.pspErrorMessage }
+          : {}),
+        ...(dynamicResult.pspLocationUrl
+          ? { pspLocationUrl: dynamicResult.pspLocationUrl }
+          : {}),
         pixType: detected.type,
         pixKey: cleanKey,
         receiverName: updated.receiverName || meta.receiverName,
         receiverCity: updated.receiverCity || meta.receiverCity,
-        payload: newPayload,
+        payload: finalPayload,
         qrMode: dynamicResult.dynamicUpdated ? 'dynamic_link' : 'static_emv',
         history: [...(updated.history || []), dynamicResult.historyEntry],
         updatedAt: now,
@@ -394,8 +452,9 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
       setActivePreviewPlaque(fixed);
       renderPlaqueCanvas(fixed, targetModel).then(setPreviewDataUrl);
       setSaveSuccessMessage(dynamicResult.message);
-      setTimeout(() => setSaveSuccessMessage(null), 5000);
+      setTimeout(() => setSaveSuccessMessage(null), 6000);
       setSelectedPlaqueForEdit(null);
+      setForcedPixType(undefined);
       setEditShowPreview(true);
     } finally {
       setIsSavingEdit(false);
@@ -741,19 +800,14 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
                 <span className="text-xs font-bold text-neutral-400">
                   Prévia {activePreviewPlaque ? `(${activePreviewPlaque.number})` : ''}
                 </span>
-                {activePreviewPlaque && (
-                  <span
-                    className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                      activePreviewPlaque.pixStatus === 'linked' && activePreviewPlaque.pixKey
-                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                        : 'bg-amber-950/80 text-amber-400 border border-amber-800'
-                    }`}
-                  >
-                    {activePreviewPlaque.pixStatus === 'linked' && activePreviewPlaque.pixKey
-                      ? 'Chave vinculada'
-                      : 'Sem chave Pix'}
-                  </span>
-                )}
+                {activePreviewPlaque && (() => {
+                  const badge = getPlaqueStatusBadge(activePreviewPlaque);
+                  return (
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${getToneClasses(badge.tone)}`}>
+                      {badge.shortLabel}
+                    </span>
+                  );
+                })()}
               </div>
 
               {previewDataUrl ? (
@@ -805,6 +859,7 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto pr-1">
                 {plaquesList.map((plaque) => {
                   const isLinked = plaque.pixStatus === 'linked' && Boolean(plaque.pixKey);
+                  const badge = getPlaqueStatusBadge(plaque);
                   return (
                     <div
                       key={plaque.id}
@@ -825,9 +880,9 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
 
                         {isLinked ? (
                           <div className="space-y-1">
-                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
-                              <CheckCircle2 className="w-2.5 h-2.5" />
-                              Vinculada
+                            <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded ${getToneClasses(badge.tone)}`}>
+                              <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate">{badge.shortLabel}</span>
                             </span>
                             <div className="text-[11px] text-white font-mono truncate">
                               {plaque.pixKey}
@@ -851,6 +906,14 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedPlaqueForEdit(plaque);
+                          setForcedPixType(
+                            plaque.pixStatus === 'linked' &&
+                              (plaque.pixType === 'cpf' || plaque.pixType === 'phone')
+                              ? plaque.pixType
+                              : undefined
+                          );
+                          setShowBrCodeInspector(false);
+                          setCopiedBrCode(false);
                           setEditShowPreview(true);
                           setEditValidationError(null);
                         }}
@@ -869,111 +932,256 @@ export function CreateBatchView({ onSuccessNavigate }: CreateBatchViewProps) {
       )}
 
       {/* VER / EDITAR PLAQUE MODAL */}
-      {selectedPlaqueForEdit && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-[#111827] border border-[#1E293B] rounded-3xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
-              <div>
-                <span className="font-mono text-sm font-black text-[#00BFFF] block">
-                  {selectedPlaqueForEdit.permanentId || selectedPlaqueForEdit.number}
-                </span>
-                <span className="text-[10px] font-mono text-neutral-500">
-                  {selectedPlaqueForEdit.qrId}
-                </span>
-              </div>
-              <button
-                onClick={() => setSelectedPlaqueForEdit(null)}
-                className="p-1.5 text-neutral-400 hover:text-white rounded-lg bg-[#0A0E17] cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {selectedPlaqueForEdit && (() => {
+        const detectedEdit = detectPixKeyType(selectedPlaqueForEdit.pixKey, forcedPixType);
+        const modalBadge = getPlaqueStatusBadge(selectedPlaqueForEdit);
+        const liveBrCode =
+          selectedPlaqueForEdit.pixKey.trim() && detectedEdit.isValid
+            ? generatePixPayload({
+                pixType: detectedEdit.type,
+                pixKey: detectedEdit.formattedKey || selectedPlaqueForEdit.pixKey.trim(),
+                receiverName:
+                  selectedPlaqueForEdit.receiverName ||
+                  resolvePixMetadata(selectedPlaqueForEdit.pixKey).receiverName,
+                receiverCity:
+                  selectedPlaqueForEdit.receiverCity ||
+                  resolvePixMetadata(selectedPlaqueForEdit.pixKey).receiverCity,
+                txId: selectedPlaqueForEdit.txId || '***',
+                rawPayload:
+                  detectedEdit.type === 'payload'
+                    ? selectedPlaqueForEdit.pixKey.trim()
+                    : undefined,
+              })
+            : resolvePlaqueQrContent(selectedPlaqueForEdit);
+        const brCheck = liveBrCode.startsWith('000201') ? validateBrCode(liveBrCode) : null;
 
-            {editShowPreview && editPreviewCanvasUrl && (
-              <div className="bg-[#0A0E17] border border-[#1E293B] rounded-2xl p-3">
-                <img
-                  src={editPreviewCanvasUrl}
-                  alt="Prévia da Plaquinha"
-                  className="w-full aspect-square rounded-xl object-cover"
-                />
-              </div>
-            )}
-
-            {editValidationError && (
-              <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{editValidationError}</span>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-neutral-200">
-                  Chave Pix do Comprador
-                </label>
-                {selectedPlaqueForEdit.pixKey.trim() && (
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      detectPixKeyType(selectedPlaqueForEdit.pixKey).isValid
-                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                        : 'bg-amber-950/80 text-amber-400 border border-amber-800'
-                    }`}
-                  >
-                    {detectPixKeyType(selectedPlaqueForEdit.pixKey).label}
+        return (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-[#111827] border border-[#1E293B] rounded-3xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+                <div>
+                  <span className="font-mono text-sm font-black text-[#00BFFF] block">
+                    {selectedPlaqueForEdit.permanentId || selectedPlaqueForEdit.number}
                   </span>
+                  <span className="text-[10px] font-mono text-neutral-500">
+                    {selectedPlaqueForEdit.qrId}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getToneClasses(modalBadge.tone)}`}>
+                    {modalBadge.shortLabel}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSelectedPlaqueForEdit(null);
+                      setForcedPixType(undefined);
+                    }}
+                    className="p-1.5 text-neutral-400 hover:text-white rounded-lg bg-[#0A0E17] cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {editShowPreview && editPreviewCanvasUrl && (
+                <div className="bg-[#0A0E17] border border-[#1E293B] rounded-2xl p-3">
+                  <img
+                    src={editPreviewCanvasUrl}
+                    alt="Prévia da Plaquinha"
+                    className="w-full aspect-square rounded-xl object-cover"
+                  />
+                </div>
+              )}
+
+              {editValidationError && (
+                <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{editValidationError}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-neutral-200">
+                    Chave Pix do Comprador
+                  </label>
+                  {selectedPlaqueForEdit.pixKey.trim() && (
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        detectedEdit.isValid
+                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
+                          : 'bg-amber-950/80 text-amber-400 border border-amber-800'
+                      }`}
+                    >
+                      {detectedEdit.label}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={selectedPlaqueForEdit.pixKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val.replace(/\D/g, '').length !== 11) {
+                      setForcedPixType(undefined);
+                    }
+                    setSelectedPlaqueForEdit({
+                      ...selectedPlaqueForEdit,
+                      pixKey: val,
+                    });
+                    setEditValidationError(null);
+                  }}
+                  placeholder="CPF, CNPJ, Celular, E-mail ou Chave Aleatória"
+                  className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-[#00BFFF]"
+                />
+
+                {detectedEdit.isAmbiguousCpfOrPhone && (
+                  <div className="mt-2 flex items-center justify-between gap-2 p-2 bg-[#0A0E17] border border-[#1E293B] rounded-xl text-[11px]">
+                    <span className="text-neutral-400">11 dígitos — tratar como:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setForcedPixType('cpf')}
+                        className={`px-2 py-0.5 rounded-lg font-bold cursor-pointer ${
+                          detectedEdit.type === 'cpf'
+                            ? 'bg-[#00BFFF] text-black'
+                            : 'bg-[#111827] text-neutral-300 border border-[#1E293B]'
+                        }`}
+                      >
+                        CPF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForcedPixType('phone')}
+                        className={`px-2 py-0.5 rounded-lg font-bold cursor-pointer ${
+                          detectedEdit.type === 'phone'
+                            ? 'bg-[#00BFFF] text-black'
+                            : 'bg-[#111827] text-neutral-300 border border-[#1E293B]'
+                        }`}
+                      >
+                        Celular (+55)
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-              <input
-                type="text"
-                value={selectedPlaqueForEdit.pixKey}
-                onChange={(e) => {
-                  setSelectedPlaqueForEdit({
-                    ...selectedPlaqueForEdit,
-                    pixKey: e.target.value,
-                  });
-                  setEditValidationError(null);
-                }}
-                placeholder="CPF, CNPJ, Celular, E-mail ou Chave Aleatória"
-                className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-[#00BFFF]"
-              />
-            </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 pt-2">
-              <button
-                type="button"
-                disabled={isSavingEdit}
-                onClick={() => handleUpdatePlaque(selectedPlaqueForEdit)}
-                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] text-black font-black text-xs rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {isSavingEdit ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Check className="w-3.5 h-3.5 stroke-[3]" />
-                )}
-                <span>Salvar alteração</span>
-              </button>
+              {brCheck && (
+                <div className="bg-[#0A0E17] border border-[#1E293B] rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowBrCodeInspector(!showBrCodeInspector)}
+                    className="w-full px-3 py-2 flex items-center justify-between text-[11px] font-bold text-neutral-300 hover:text-white cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <QrCode className="w-3.5 h-3.5 text-[#00BFFF]" />
+                      <span>
+                        Inspecionar BR Code ({brCheck.valid ? 'EMV & CRC16 OK' : 'Inválido'})
+                      </span>
+                    </span>
+                    {showBrCodeInspector ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setEditShowPreview(!editShowPreview)}
-                className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-white border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Eye className="w-3.5 h-3.5 text-[#00BFFF]" />
-                <span>{editShowPreview ? 'Ocultar Prévia' : 'Visualizar QR Code'}</span>
-              </button>
+                  {showBrCodeInspector && (
+                    <div className="p-3 border-t border-[#1E293B] space-y-2 text-[10px]">
+                      <div className="grid grid-cols-2 gap-1.5 text-neutral-400">
+                        <div>
+                          Chave/Loc:{' '}
+                          <strong className="text-white font-mono break-all">
+                            {brCheck.details.keyOrLocation}
+                          </strong>
+                        </div>
+                        <div>
+                          TxID (62.05):{' '}
+                          <strong className="text-white font-mono">{brCheck.details.txId}</strong>
+                        </div>
+                        <div>
+                          CRC16:{' '}
+                          <strong
+                            className={
+                              brCheck.valid ? 'text-emerald-400 font-mono' : 'text-red-400 font-mono'
+                            }
+                          >
+                            {brCheck.details.crc}
+                          </strong>
+                        </div>
+                        <div>
+                          Tipo:{' '}
+                          <strong className="text-white">
+                            {brCheck.details.isDynamic ? 'Dinâmico (12)' : 'Estático (11)'}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="p-2 bg-black/60 rounded-lg font-mono text-[10px] text-neutral-300 break-all border border-[#1E293B]">
+                        {liveBrCode}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(liveBrCode);
+                          setCopiedBrCode(true);
+                          setTimeout(() => setCopiedBrCode(false), 2000);
+                        }}
+                        className="w-full py-1.5 px-3 bg-[#111827] hover:bg-[#1E293B] text-[#00BFFF] border border-[#1E293B] rounded-lg font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {copiedBrCode ? (
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                        <span>
+                          {copiedBrCode ? 'Copia e Cola copiado!' : 'Copiar Pix Copia e Cola'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              <button
-                type="button"
-                onClick={() => setSelectedPlaqueForEdit(null)}
-                className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Voltar</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleUpdatePlaque(selectedPlaqueForEdit)}
+                  className="flex-1 py-2.5 px-4 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] text-black font-black text-xs rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingEdit ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  )}
+                  <span>Salvar alteração</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditShowPreview(!editShowPreview)}
+                  className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-white border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#00BFFF]" />
+                  <span>{editShowPreview ? 'Ocultar Prévia' : 'Visualizar QR Code'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlaqueForEdit(null);
+                    setForcedPixType(undefined);
+                  }}
+                  className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Voltar</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

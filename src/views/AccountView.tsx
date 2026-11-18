@@ -5,6 +5,8 @@ import { auth, firebaseConfig } from '../lib/firebase';
 import {
   fetchPixIntegrationConfig,
   savePixIntegrationConfig,
+  testPspIntegrationEndpoint,
+  EndpointTestResult,
   DEFAULT_INTEGRATION_CONFIG,
 } from '../lib/pixIntegration';
 import { PixIntegrationConfig, PixIntegrationProvider } from '../types';
@@ -17,6 +19,7 @@ import {
   Database,
   Plug,
   Save,
+  RefreshCw,
 } from 'lucide-react';
 
 export function AccountView() {
@@ -30,6 +33,8 @@ export function AccountView() {
   // Single-time Pix Default Receiver + Optional PSP Dynamic Integration
   const [pixConfig, setPixConfig] = useState<PixIntegrationConfig>(DEFAULT_INTEGRATION_CONFIG);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [testingEndpoint, setTestingEndpoint] = useState(false);
+  const [endpointTestResult, setEndpointTestResult] = useState<EndpointTestResult | null>(null);
   const [configMsg, setConfigMsg] = useState<{ text: string; error: boolean } | null>(null);
 
   useEffect(() => {
@@ -50,6 +55,17 @@ export function AccountView() {
       setConfigMsg({ text: 'Erro ao salvar configurações Pix.', error: true });
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const handleTestEndpoint = async () => {
+    setTestingEndpoint(true);
+    setEndpointTestResult(null);
+    try {
+      const res = await testPspIntegrationEndpoint(pixConfig);
+      setEndpointTestResult(res);
+    } finally {
+      setTestingEndpoint(false);
     }
   };
 
@@ -141,10 +157,10 @@ export function AccountView() {
         <div>
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Plug className="w-4 h-4 text-[#00BFFF]" />
-            <span>Dados Padrão do Recebedor & Integração Pix PSP</span>
+            <span>Dados Padrão do BR Code & Integração Pix PSP</span>
           </h3>
           <p className="text-xs text-neutral-400 mt-1">
-            Configure uma única vez para preencher automaticamente seus QR Codes sem precisar digitar em cada plaquinha.
+            Configure uma única vez os campos EMV padrão. O nome real do titular da conta é consultado pelo app do banco no DICT após a leitura.
           </p>
         </div>
 
@@ -169,7 +185,7 @@ export function AccountView() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1">
-                Nome do Recebedor Padrão (máx 25)
+                Rótulo EMV Padrão (opcional, máx 25)
               </label>
               <input
                 type="text"
@@ -178,14 +194,14 @@ export function AccountView() {
                 onChange={(e) =>
                   setPixConfig({ ...pixConfig, defaultReceiverName: e.target.value })
                 }
-                placeholder="Ex: MINHA LOJA"
+                placeholder="PIX"
                 className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl py-2 px-3 text-xs text-white"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1">
-                Cidade Padrão (máx 15)
+                Cidade Padrão (opcional, máx 15)
               </label>
               <input
                 type="text"
@@ -194,7 +210,7 @@ export function AccountView() {
                 onChange={(e) =>
                   setPixConfig({ ...pixConfig, defaultReceiverCity: e.target.value })
                 }
-                placeholder="Ex: SAO PAULO"
+                placeholder="BRASIL"
                 className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl py-2 px-3 text-xs text-white"
               />
             </div>
@@ -212,7 +228,7 @@ export function AccountView() {
                 Conectar API / Provedor Pix Dinâmico (PSP)
               </span>
               <span className="text-[11px] text-neutral-400 block">
-                Ative apenas se possuir um endpoint compatível de sincronização PSP.
+                Ative apenas se possuir um gateway HTTP/HTTPS que emita locations dinâmicas BACEN (ID 01=12).
               </span>
             </div>
           </label>
@@ -269,7 +285,10 @@ export function AccountView() {
                 <input
                   type="url"
                   value={pixConfig.apiEndpoint || ''}
-                  onChange={(e) => setPixConfig({ ...pixConfig, apiEndpoint: e.target.value })}
+                  onChange={(e) => {
+                    setPixConfig({ ...pixConfig, apiEndpoint: e.target.value });
+                    setEndpointTestResult(null);
+                  }}
                   placeholder="https://sua-api-pix.exemplo.com/plaquinhas/sync"
                   className="w-full bg-[#111827] border border-[#1E293B] rounded-xl py-2 px-3 text-xs text-white"
                 />
@@ -287,6 +306,54 @@ export function AccountView() {
                   className="w-full bg-[#111827] border border-[#1E293B] rounded-xl py-2 px-3 text-xs text-white"
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 p-3 bg-[#111827] rounded-xl border border-[#1E293B] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(pixConfig.supportsReceiverSwap)}
+                  onChange={(e) =>
+                    setPixConfig({ ...pixConfig, supportsReceiverSwap: e.target.checked })
+                  }
+                  className="w-4 h-4 accent-[#00BFFF] rounded mt-0.5"
+                />
+                <div>
+                  <span className="text-xs font-bold text-white block">
+                    Provedor suporta alteração autorizada de recebedor/chave em QR já impresso
+                  </span>
+                  <span className="text-[11px] text-neutral-400 block leading-relaxed">
+                    Contas PSP comuns emitem QR apenas para a própria conta titular (mTLS). Marque apenas se o seu gateway possuir subcontas/split com permissão de roteamento. Sem confirmação real da API, plaquinhas pré-impressas não são marcadas como prontas.
+                  </span>
+                </div>
+              </label>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleTestEndpoint}
+                  disabled={testingEndpoint || !pixConfig.apiEndpoint?.trim()}
+                  className="px-3 py-2 bg-[#111827] hover:bg-[#1E293B] text-[#00BFFF] border border-[#1E293B] rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${testingEndpoint ? 'animate-spin' : ''}`} />
+                  <span>{testingEndpoint ? 'Testando...' : 'Testar Endpoint PSP'}</span>
+                </button>
+              </div>
+
+              {endpointTestResult && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                    endpointTestResult.ok
+                      ? 'bg-emerald-950/40 border border-emerald-800/60 text-emerald-200'
+                      : 'bg-amber-950/40 border border-amber-800/60 text-amber-200'
+                  }`}
+                >
+                  {endpointTestResult.ok ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  )}
+                  <span>{endpointTestResult.message}</span>
+                </div>
+              )}
             </div>
           )}
 

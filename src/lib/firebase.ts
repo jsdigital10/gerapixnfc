@@ -31,6 +31,7 @@ import {
   UserStatus,
   ActivityLog,
 } from '../types';
+import { detectPixKeyType, generatePixPayload, validateBrCode } from './pix';
 
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -341,14 +342,53 @@ function markBatchDeletedLocally(batchId: string): void {
 
 function normalizeBatchRecord(b: PlaqueBatch): PlaqueBatch {
   const plaques = (b.plaques || []).map((p) => {
-    const hasKey = Boolean(p.pixKey && p.pixKey.trim().length > 0);
+    const cleanKey = (p.pixKey || '').trim();
+    const hasKey = cleanKey.length > 0;
+    let payload = (p.payload || '').trim();
+
+    if (!p.pspLocationUrl && hasKey) {
+      const check = payload ? validateBrCode(payload) : null;
+      if (!check || !check.valid) {
+        try {
+          const detected = detectPixKeyType(
+            cleanKey,
+            p.pixType && p.pixType !== 'payload' ? p.pixType : undefined
+          );
+          if (detected.isValid || p.pixType !== 'payload') {
+            payload = generatePixPayload({
+              pixType: detected.type,
+              pixKey: detected.formattedKey || cleanKey,
+              receiverName: p.receiverName || 'PIX',
+              receiverCity: p.receiverCity || 'BRASIL',
+              amount: p.amount,
+              txId: p.txId || '***',
+              rawPayload: detected.type === 'payload' ? cleanKey : undefined,
+            });
+          }
+        } catch {}
+      }
+    }
+
+    const pspSyncStatus = p.pspSyncStatus || 'pending_psp';
+    const qrState =
+      !hasKey && !p.pspLocationUrl
+        ? 'unlinked'
+        : p.qrState ||
+          (pspSyncStatus === 'synced_psp' && Boolean(p.pspLocationUrl)
+            ? 'dynamic_psp_ready'
+            : pspSyncStatus === 'error'
+            ? 'dynamic_psp_unsupported'
+            : 'static_reprint_required');
+
     return {
       ...p,
       permanentId: p.permanentId || p.number,
       qrId: p.qrId || `QR-${p.permanentId || p.number}`,
       modelId: p.modelId || b.modelId,
       pixStatus: p.pixStatus || (hasKey ? 'linked' : 'unlinked'),
-      pspSyncStatus: p.pspSyncStatus || 'pending_psp',
+      pspSyncStatus,
+      qrState,
+      payload,
     };
   });
   return {

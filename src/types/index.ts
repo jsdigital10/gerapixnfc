@@ -67,6 +67,11 @@ export interface PlaqueModelConfig {
 export type QrCodeMode = 'dynamic_link' | 'static_emv';
 export type PlaquePixStatus = 'unlinked' | 'linked';
 export type PspSyncStatus = 'pending_psp' | 'synced_psp' | 'error';
+export type PlaqueQrState =
+  | 'unlinked'
+  | 'static_reprint_required'
+  | 'dynamic_psp_ready'
+  | 'dynamic_psp_unsupported';
 
 export interface PlaqueHistoryEntry {
   pixKey: string;
@@ -85,7 +90,9 @@ export interface PlaqueItem {
   modelId: string;
   modelSnapshot?: PlaqueModelConfig;
   pixStatus?: PlaquePixStatus; // 'unlinked' (created without key) or 'linked' (buyer key registered)
+  qrState?: PlaqueQrState; // Honest operational readiness of printed vs updated QR
   pspSyncStatus?: PspSyncStatus; // 'pending_psp' | 'synced_psp' | 'error'
+  pspErrorMessage?: string;
   pspLocationUrl?: string; // Real dynamic PSP location URL if provisioned
   pixType: PixKeyType;
   pixKey: string; // Empty string when unlinked
@@ -111,6 +118,7 @@ export type PixIntegrationProvider =
 export interface PixIntegrationConfig {
   provider: PixIntegrationProvider;
   enabled: boolean;
+  supportsReceiverSwap?: boolean;
   apiEndpoint?: string;
   apiKey?: string;
   clientId?: string;

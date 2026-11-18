@@ -3,7 +3,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { PlaqueItem } from '../types';
 import { BRAZILIAN_BANKS, BankLogoIcon } from '../lib/bankLogos';
-import { generatePixPayload } from '../lib/pix';
+import { generatePixPayload, validateBrCode } from '../lib/pix';
 import {
   Copy,
   Check,
@@ -125,14 +125,18 @@ export function PublicPlaquePointView({ plaqueId }: PublicPlaquePointViewProps) 
 
   const handleCopyPayload = () => {
     if (!plaque) return;
-    const emv = plaque.payload || generatePixPayload({
-      pixType: plaque.pixType,
-      pixKey: plaque.pixKey,
-      receiverName: plaque.receiverName,
-      receiverCity: plaque.receiverCity || 'SAO PAULO',
-      amount: plaque.amount,
-      txId: plaque.txId,
-    });
+    const stored = (plaque.payload || '').trim();
+    const emv =
+      stored && validateBrCode(stored).valid
+        ? stored
+        : generatePixPayload({
+            pixType: plaque.pixType,
+            pixKey: plaque.pixKey,
+            receiverName: plaque.receiverName || 'PIX',
+            receiverCity: plaque.receiverCity || 'BRASIL',
+            amount: plaque.amount,
+            txId: plaque.txId || '***',
+          });
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(emv);

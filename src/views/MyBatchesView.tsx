@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { PlaqueBatch, PlaqueItem, PixIntegrationConfig } from '../types';
+import { PlaqueBatch, PlaqueItem, PixIntegrationConfig, PixKeyType } from '../types';
 import { fetchUserBatches, deletePlaqueBatch, savePlaqueBatch, logActivity } from '../lib/firebase';
 import { getStoredModelConfigs, resolvePlaqueModel } from '../lib/modelsData';
-import { generatePlaquesPdf, renderPlaqueCanvas, PdfGenerationProgress } from '../lib/pdfGenerator';
-import { generatePixPayload, detectPixKeyType } from '../lib/pix';
+import {
+  generatePlaquesPdf,
+  renderPlaqueCanvas,
+  resolvePlaqueQrContent,
+  PdfGenerationProgress,
+} from '../lib/pdfGenerator';
+import { generatePixPayload, detectPixKeyType, validateBrCode } from '../lib/pix';
 import {
   fetchPixIntegrationConfig,
   isPspDynamicConfigured,
@@ -32,7 +37,52 @@ import {
   Clock,
   Info,
   History,
+  Copy,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+
+function getPlaqueStatusBadge(plaque: PlaqueItem): {
+  label: string;
+  shortLabel: string;
+  tone: 'amber' | 'emerald' | 'orange' | 'sky';
+} {
+  const hasKey = Boolean(plaque.pixKey?.trim()) && plaque.pixStatus !== 'unlinked';
+  if (!hasKey && !plaque.pspLocationUrl) {
+    return { label: 'Sem chave Pix', shortLabel: 'Sem chave Pix', tone: 'amber' };
+  }
+  if (
+    plaque.qrState === 'dynamic_psp_ready' ||
+    (plaque.pspSyncStatus === 'synced_psp' && Boolean(plaque.pspLocationUrl))
+  ) {
+    return { label: 'PSP Dinâmico Pronto', shortLabel: 'PSP Dinâmico', tone: 'emerald' };
+  }
+  if (plaque.qrState === 'dynamic_psp_unsupported' || plaque.pspSyncStatus === 'error') {
+    return {
+      label: 'BR Code Gerado (Troca PSP Indisponível)',
+      shortLabel: 'Novo QR/PDF',
+      tone: 'orange',
+    };
+  }
+  return {
+    label: 'BR Code Estático (Novo QR/PDF)',
+    shortLabel: 'BR Code Estático',
+    tone: 'sky',
+  };
+}
+
+function getToneClasses(tone: 'amber' | 'emerald' | 'orange' | 'sky'): string {
+  switch (tone) {
+    case 'emerald':
+      return 'bg-emerald-950/80 text-emerald-400 border border-emerald-800';
+    case 'orange':
+      return 'bg-orange-950/80 text-orange-300 border border-orange-800/70';
+    case 'sky':
+      return 'bg-[#00BFFF]/15 text-[#00BFFF] border border-[#00BFFF]/40';
+    default:
+      return 'bg-amber-950/80 text-amber-400 border border-amber-800';
+  }
+}
 
 interface MyBatchesViewProps {
   onNavigate: (tab: any) => void;
@@ -57,6 +107,9 @@ export function MyBatchesView({
 
   // Ver / Editar Plaque State
   const [editingPlaque, setEditingPlaque] = useState<PlaqueItem | null>(null);
+  const [forcedPixType, setForcedPixType] = useState<PixKeyType | undefined>(undefined);
+  const [showBrCodeInspector, setShowBrCodeInspector] = useState<boolean>(false);
+  const [copiedBrCode, setCopiedBrCode] = useState<boolean>(false);
   const [showQrPreviewInEdit, setShowQrPreviewInEdit] = useState<boolean>(true);
   const [editPreviewUrl, setEditPreviewUrl] = useState<string | null>(null);
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
@@ -128,7 +181,7 @@ export function MyBatchesView({
       selectedBatch?.modelSnapshot
     );
     const rawKey = (editingPlaque.pixKey || '').trim();
-    const detected = detectPixKeyType(rawKey);
+    const detected = detectPixKeyType(rawKey, forcedPixType);
     const defaults = getDefaultPixMetadata(integrationConfig);
 
     let tempPlaque: PlaqueItem = { ...editingPlaque };
@@ -163,7 +216,13 @@ export function MyBatchesView({
     return () => {
       active = false;
     };
-  }, [editingPlaque?.pixKey, editingPlaque?.modelId, showQrPreviewInEdit, selectedBatch?.id]);
+  }, [
+    editingPlaque?.pixKey,
+    editingPlaque?.modelId,
+    forcedPixType,
+    showQrPreviewInEdit,
+    selectedBatch?.id,
+  ]);
 
   const handleCloseBatchModal = () => {
     setSelectedBatch(null);
@@ -216,26 +275,7 @@ export function MyBatchesView({
   };
 
   const handleDownloadStandaloneQr = async (plaque: PlaqueItem) => {
-    const cleanKey = (plaque.pixKey || '').trim();
-    let payload = (plaque.payload || '').trim();
-
-    if (!payload.startsWith('000201') && cleanKey) {
-      const detected = detectPixKeyType(cleanKey);
-      const formatted = detected.formattedKey || cleanKey;
-      const defaults = getDefaultPixMetadata(integrationConfig);
-      payload = generatePixPayload({
-        pixType: detected.type,
-        pixKey: formatted,
-        receiverName: plaque.receiverName || defaults.receiverName,
-        receiverCity: plaque.receiverCity || defaults.receiverCity,
-        txId: plaque.txId || '***',
-        rawPayload: detected.type === 'payload' ? formatted : undefined,
-      });
-    }
-
-    if (!payload) {
-      payload = `GERAPIX:${plaque.permanentId || plaque.number}:${plaque.qrId || plaque.id}`;
-    }
+    const payload = resolvePlaqueQrContent(plaque);
 
     const dataUrl = await QRCode.toDataURL(payload, {
       errorCorrectionLevel: 'M',
@@ -259,6 +299,14 @@ export function MyBatchesView({
       qrId: plaque.qrId || `QR-${plaque.permanentId || plaque.number}`,
       modelId: plaque.modelId || selectedBatch?.modelId || 'model-01',
     });
+    setForcedPixType(
+      plaque.pixStatus === 'linked' &&
+        (plaque.pixType === 'cpf' || plaque.pixType === 'phone')
+        ? plaque.pixType
+        : undefined
+    );
+    setShowBrCodeInspector(false);
+    setCopiedBrCode(false);
     setShowModelPicker(false);
     setShowQrPreviewInEdit(true);
     setEditValidationError(null);
@@ -269,7 +317,7 @@ export function MyBatchesView({
     if (!editingPlaque || !selectedBatch) return;
     setEditValidationError(null);
 
-    const detected = detectPixKeyType(editingPlaque.pixKey);
+    const detected = detectPixKeyType(editingPlaque.pixKey, forcedPixType);
     if (!detected.isValid) {
       setEditValidationError(detected.message || 'Chave Pix inválida.');
       return;
@@ -290,7 +338,7 @@ export function MyBatchesView({
         integrationConfig
       );
 
-      const payload = generatePixPayload({
+      const staticPayload = generatePixPayload({
         pixType: detected.type,
         pixKey: cleanKey,
         receiverName,
@@ -298,6 +346,19 @@ export function MyBatchesView({
         txId: editingPlaque.txId || '***',
         rawPayload: detected.type === 'payload' ? cleanKey : undefined,
       });
+
+      const finalPayload =
+        dynamicResult.dynamicUpdated && dynamicResult.dynamicPayload
+          ? dynamicResult.dynamicPayload
+          : staticPayload;
+
+      const brCheck = validateBrCode(finalPayload);
+      if (!brCheck.valid) {
+        setEditValidationError(
+          `BR Code inválido antes de salvar: ${brCheck.errors[0] || 'verifique a chave.'}`
+        );
+        return;
+      }
 
       const resolvedModel = resolvePlaqueModel(
         editingPlaque.modelId || selectedBatch.modelId,
@@ -311,17 +372,24 @@ export function MyBatchesView({
         qrId: editingPlaque.qrId || `QR-${editingPlaque.permanentId || editingPlaque.number}`,
         modelId: resolvedModel.id,
         pixStatus: 'linked',
+        qrState: dynamicResult.qrState,
         pspSyncStatus: dynamicResult.dynamicUpdated
           ? 'synced_psp'
           : dynamicResult.pspConfigured
           ? 'error'
           : 'pending_psp',
+        ...(dynamicResult.pspErrorMessage
+          ? { pspErrorMessage: dynamicResult.pspErrorMessage }
+          : { pspErrorMessage: undefined }),
+        ...(dynamicResult.pspLocationUrl
+          ? { pspLocationUrl: dynamicResult.pspLocationUrl }
+          : {}),
         qrMode: dynamicResult.dynamicUpdated ? 'dynamic_link' : 'static_emv',
         pixType: detected.type,
         pixKey: cleanKey,
         receiverName,
         receiverCity,
-        payload,
+        payload: finalPayload,
         history: [...(editingPlaque.history || []), dynamicResult.historyEntry],
         updatedAt: new Date().toISOString(),
       };
@@ -356,6 +424,7 @@ export function MyBatchesView({
         type: dynamicResult.dynamicUpdated ? 'success' : 'info',
       });
       setEditingPlaque(null);
+      setForcedPixType(undefined);
       setShowQrPreviewInEdit(true);
     } catch {
       setEditValidationError('Erro ao salvar alterações.');
@@ -576,19 +645,14 @@ export function MyBatchesView({
                   <span className="text-xs font-bold text-neutral-400">
                     Prévia {activePreviewPlaque ? `(${activePreviewPlaque.number})` : ''}
                   </span>
-                  {activePreviewPlaque && (
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        activePreviewPlaque.pixStatus === 'linked' && activePreviewPlaque.pixKey
-                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                          : 'bg-amber-950/80 text-amber-400 border border-amber-800'
-                      }`}
-                    >
-                      {activePreviewPlaque.pixStatus === 'linked' && activePreviewPlaque.pixKey
-                        ? 'Vinculada'
-                        : 'Sem chave Pix'}
-                    </span>
-                  )}
+                  {activePreviewPlaque && (() => {
+                    const badge = getPlaqueStatusBadge(activePreviewPlaque);
+                    return (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getToneClasses(badge.tone)}`}>
+                        {badge.shortLabel}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {previewDataUrl ? (
@@ -637,6 +701,7 @@ export function MyBatchesView({
                     );
                     const isLinked =
                       plaque.pixStatus === 'linked' && Boolean(plaque.pixKey?.trim());
+                    const badge = getPlaqueStatusBadge(plaque);
 
                     return (
                       <div
@@ -667,9 +732,9 @@ export function MyBatchesView({
 
                           {isLinked ? (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-400">
-                                <CheckCircle2 className="w-2.5 h-2.5" />
-                                Chave vinculada
+                              <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded ${getToneClasses(badge.tone)}`}>
+                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">{badge.shortLabel}</span>
                               </span>
                               <div className="text-[11px] text-white font-mono truncate">
                                 {plaque.pixKey}
@@ -702,226 +767,364 @@ export function MyBatchesView({
       )}
 
       {/* VER / EDITAR PLAQUE MODAL */}
-      {editingPlaque && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-[#111827] border border-[#1E293B] rounded-3xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
-              <div>
-                <span className="font-mono text-sm font-black text-[#00BFFF] block">
-                  {editingPlaque.permanentId || editingPlaque.number}
-                </span>
-                <span className="text-[10px] font-mono text-neutral-500">
-                  {editingPlaque.qrId}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModelPicker(!showModelPicker)}
-                  className="px-2.5 py-1 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <Palette className="w-3 h-3 text-[#00BFFF]" />
-                  <span>Modelo</span>
-                </button>
-                <button
-                  onClick={() => setEditingPlaque(null)}
-                  className="p-1.5 text-neutral-400 hover:text-white rounded-xl bg-[#0A0E17] cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+      {editingPlaque && (() => {
+        const detectedEdit = detectPixKeyType(editingPlaque.pixKey, forcedPixType);
+        const modalBadge = getPlaqueStatusBadge(editingPlaque);
+        const defaults = getDefaultPixMetadata(integrationConfig);
+        const liveBrCode =
+          editingPlaque.pixKey.trim() && detectedEdit.isValid
+            ? generatePixPayload({
+                pixType: detectedEdit.type,
+                pixKey: detectedEdit.formattedKey || editingPlaque.pixKey.trim(),
+                receiverName: editingPlaque.receiverName || defaults.receiverName,
+                receiverCity: editingPlaque.receiverCity || defaults.receiverCity,
+                txId: editingPlaque.txId || '***',
+                rawPayload:
+                  detectedEdit.type === 'payload' ? editingPlaque.pixKey.trim() : undefined,
+              })
+            : resolvePlaqueQrContent(editingPlaque);
+        const brCheck = liveBrCode.startsWith('000201') ? validateBrCode(liveBrCode) : null;
 
-            {/* Status & PSP Honesty Notice */}
-            <div className="p-3 bg-[#0A0E17] border border-[#1E293B] rounded-xl text-[11px] space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-neutral-400">Status da Chave:</span>
-                <span
-                  className={`font-bold ${
-                    editingPlaque.pixStatus === 'linked' && editingPlaque.pixKey
-                      ? 'text-emerald-400'
-                      : 'text-amber-400'
-                  }`}
-                >
-                  {editingPlaque.pixStatus === 'linked' && editingPlaque.pixKey
-                    ? 'Chave Pix vinculada'
-                    : 'Aguardando chave Pix do comprador'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-neutral-400">Infraestrutura PSP Dinâmica:</span>
-                <span
-                  className={`font-bold ${
-                    isPspDynamicConfigured(integrationConfig) ? 'text-emerald-400' : 'text-amber-300'
-                  }`}
-                >
-                  {isPspDynamicConfigured(integrationConfig)
-                    ? 'Configurada'
-                    : 'Pendente de integração'}
-                </span>
-              </div>
-              {!isPspDynamicConfigured(integrationConfig) && (
-                <div className="flex items-start gap-1.5 pt-1 text-[10px] text-neutral-400 border-t border-[#1E293B]">
-                  <Info className="w-3.5 h-3.5 text-[#00BFFF] shrink-0 mt-0.5" />
-                  <span>
-                    Ao salvar a chave Pix, o sistema gera o BR Code oficial BACEN. Para que placas já impressas mantenham o mesmo QR Code após trocas de chave no banco, conecte seu PSP em Minha Conta.
+        return (
+          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-[#111827] border border-[#1E293B] rounded-3xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+                <div>
+                  <span className="font-mono text-sm font-black text-[#00BFFF] block">
+                    {editingPlaque.permanentId || editingPlaque.number}
+                  </span>
+                  <span className="text-[10px] font-mono text-neutral-500">
+                    {editingPlaque.qrId}
                   </span>
                 </div>
-              )}
-            </div>
-
-            {showModelPicker && (
-              <div className="grid grid-cols-2 gap-2 p-2.5 bg-[#0A0E17] rounded-2xl border border-[#1E293B] max-h-44 overflow-y-auto">
-                {models.map((mod) => {
-                  const isCurrent = editingPlaque.modelId === mod.id;
-                  return (
-                    <button
-                      key={mod.id}
-                      type="button"
-                      onClick={() => {
-                        setEditingPlaque({ ...editingPlaque, modelId: mod.id });
-                        setShowModelPicker(false);
-                      }}
-                      className={`flex items-center gap-2 p-2 rounded-xl border text-left transition cursor-pointer ${
-                        isCurrent
-                          ? 'border-[#00BFFF] bg-[#00BFFF]/15 text-white font-bold'
-                          : 'border-[#1E293B] bg-[#111827] text-neutral-300'
-                      }`}
-                    >
-                      <img
-                        src={mod.imageUrl}
-                        alt={mod.name}
-                        className="w-8 h-8 rounded-lg object-cover bg-black shrink-0"
-                      />
-                      <span className="text-[11px] truncate">{mod.name.split('—')[0]}</span>
-                    </button>
-                  );
-                })}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowModelPicker(!showModelPicker)}
+                    className="px-2.5 py-1 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Palette className="w-3 h-3 text-[#00BFFF]" />
+                    <span>Modelo</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingPlaque(null);
+                      setForcedPixType(undefined);
+                    }}
+                    className="p-1.5 text-neutral-400 hover:text-white rounded-xl bg-[#0A0E17] cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            )}
 
-            {editValidationError && (
-              <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{editValidationError}</span>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-white">
-                  Chave Pix do Comprador
-                </label>
-                {editingPlaque.pixKey.trim() && (
+              {/* Status & PSP Honesty Notice */}
+              <div className="p-3 bg-[#0A0E17] border border-[#1E293B] rounded-xl text-[11px] space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-neutral-400">Status do QR / Chave:</span>
+                  <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${getToneClasses(modalBadge.tone)}`}>
+                    {modalBadge.label}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-neutral-400">Infraestrutura PSP Dinâmica:</span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      detectPixKeyType(editingPlaque.pixKey).isValid
-                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                        : 'bg-amber-950/80 text-amber-400 border border-amber-800'
+                    className={`font-bold ${
+                      isPspDynamicConfigured(integrationConfig) &&
+                      integrationConfig.supportsReceiverSwap
+                        ? 'text-emerald-400'
+                        : 'text-amber-300'
                     }`}
                   >
-                    {detectPixKeyType(editingPlaque.pixKey).label}
+                    {isPspDynamicConfigured(integrationConfig) &&
+                    integrationConfig.supportsReceiverSwap
+                      ? 'Autorizada'
+                      : isPspDynamicConfigured(integrationConfig)
+                      ? 'Sem suporte a troca de recebedor'
+                      : 'Pendente de integração'}
                   </span>
-                )}
-              </div>
-
-              <input
-                type="text"
-                value={editingPlaque.pixKey}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const detected = detectPixKeyType(val);
-                  setEditingPlaque({
-                    ...editingPlaque,
-                    pixKey: val,
-                    pixType: detected.type,
-                  });
-                  setEditValidationError(null);
-                }}
-                placeholder="CPF, CNPJ, Celular, E-mail ou Chave Aleatória"
-                className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-[#00BFFF]"
-              />
-            </div>
-
-            {showQrPreviewInEdit && (
-              <div className="bg-[#0A0E17] border border-[#1E293B] rounded-2xl p-3 space-y-3">
-                {editPreviewUrl ? (
-                  <>
-                    <img
-                      src={editPreviewUrl}
-                      alt="Prévia Plaquinha"
-                      className="w-full aspect-square rounded-xl object-cover bg-black"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadStandaloneQr(editingPlaque)}
-                      className="w-full py-2 px-3 bg-[#111827] hover:bg-[#1E293B] text-white border border-[#1E293B] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5 text-[#00BFFF]" />
-                      <span>Baixar QR Code (PNG)</span>
-                    </button>
-                  </>
-                ) : (
-                  <div className="aspect-square flex items-center justify-center text-xs text-neutral-500">
-                    <RefreshCw className="w-5 h-5 animate-spin text-[#00BFFF]" />
+                </div>
+                {editingPlaque.pspErrorMessage && (
+                  <div className="flex items-start gap-1.5 pt-1 text-[10px] text-orange-300 border-t border-[#1E293B]">
+                    <AlertCircle className="w-3.5 h-3.5 text-orange-400 shrink-0 mt-0.5" />
+                    <span>{editingPlaque.pspErrorMessage}</span>
                   </div>
                 )}
-              </div>
-            )}
-
-            {editingPlaque.history && editingPlaque.history.length > 0 && (
-              <div className="bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 space-y-1.5 max-h-28 overflow-y-auto">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-neutral-400">
-                  <History className="w-3 h-3 text-[#00BFFF]" />
-                  <span>Histórico de Vinculação</span>
-                </div>
-                {editingPlaque.history.slice(-4).reverse().map((h, idx) => (
-                  <div key={idx} className="text-[10px] text-neutral-400 flex justify-between gap-2">
-                    <span className="truncate">{h.note || h.pixKey || 'Sem chave'}</span>
-                    <span className="font-mono text-neutral-500 shrink-0">
-                      {h.updatedAt ? new Date(h.updatedAt).toLocaleDateString('pt-BR') : ''}
+                {(!isPspDynamicConfigured(integrationConfig) ||
+                  !integrationConfig.supportsReceiverSwap) && (
+                  <div className="flex items-start gap-1.5 pt-1 text-[10px] text-neutral-400 border-t border-[#1E293B]">
+                    <Info className="w-3.5 h-3.5 text-[#00BFFF] shrink-0 mt-0.5" />
+                    <span>
+                      Ao salvar, é gerado o BR Code estático oficial do Banco Central para novo QR/PDF. Uma placa já impressa anteriormente só muda o destino no banco se houver PSP dinâmico autorizado com suporte à troca de recebedor.
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row gap-2 pt-2">
-              <button
-                type="button"
-                disabled={isSavingEdit}
-                onClick={handleSaveEditedPlaque}
-                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] hover:from-[#38BDF8] hover:to-[#00BFFF] text-black font-black text-xs rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {isSavingEdit ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Check className="w-3.5 h-3.5 stroke-[3]" />
                 )}
-                <span>Salvar alteração</span>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setShowQrPreviewInEdit(!showQrPreviewInEdit)}
-                className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-white border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Eye className="w-3.5 h-3.5 text-[#00BFFF]" />
-                <span>{showQrPreviewInEdit ? 'Ocultar Prévia' : 'Visualizar QR Code'}</span>
-              </button>
+              {showModelPicker && (
+                <div className="grid grid-cols-2 gap-2 p-2.5 bg-[#0A0E17] rounded-2xl border border-[#1E293B] max-h-44 overflow-y-auto">
+                  {models.map((mod) => {
+                    const isCurrent = editingPlaque.modelId === mod.id;
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        onClick={() => {
+                          setEditingPlaque({ ...editingPlaque, modelId: mod.id });
+                          setShowModelPicker(false);
+                        }}
+                        className={`flex items-center gap-2 p-2 rounded-xl border text-left transition cursor-pointer ${
+                          isCurrent
+                            ? 'border-[#00BFFF] bg-[#00BFFF]/15 text-white font-bold'
+                            : 'border-[#1E293B] bg-[#111827] text-neutral-300'
+                        }`}
+                      >
+                        <img
+                          src={mod.imageUrl}
+                          alt={mod.name}
+                          className="w-8 h-8 rounded-lg object-cover bg-black shrink-0"
+                        />
+                        <span className="text-[11px] truncate">{mod.name.split('—')[0]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
-              <button
-                type="button"
-                onClick={() => setEditingPlaque(null)}
-                className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Voltar</span>
-              </button>
+              {editValidationError && (
+                <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-200 text-xs">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{editValidationError}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-white">
+                    Chave Pix do Comprador
+                  </label>
+                  {editingPlaque.pixKey.trim() && (
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        detectedEdit.isValid
+                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
+                          : 'bg-amber-950/80 text-amber-400 border border-amber-800'
+                      }`}
+                    >
+                      {detectedEdit.label}
+                    </span>
+                  )}
+                </div>
+
+                <input
+                  type="text"
+                  value={editingPlaque.pixKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const nextForce = val.replace(/\D/g, '').length === 11 ? forcedPixType : undefined;
+                    if (nextForce === undefined) setForcedPixType(undefined);
+                    const detected = detectPixKeyType(val, nextForce);
+                    setEditingPlaque({
+                      ...editingPlaque,
+                      pixKey: val,
+                      pixType: detected.type,
+                    });
+                    setEditValidationError(null);
+                  }}
+                  placeholder="CPF, CNPJ, Celular, E-mail ou Chave Aleatória"
+                  className="w-full bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-[#00BFFF]"
+                />
+
+                {detectedEdit.isAmbiguousCpfOrPhone && (
+                  <div className="mt-2 flex items-center justify-between gap-2 p-2 bg-[#0A0E17] border border-[#1E293B] rounded-xl text-[11px]">
+                    <span className="text-neutral-400">11 dígitos — tratar como:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setForcedPixType('cpf')}
+                        className={`px-2 py-0.5 rounded-lg font-bold cursor-pointer ${
+                          detectedEdit.type === 'cpf'
+                            ? 'bg-[#00BFFF] text-black'
+                            : 'bg-[#111827] text-neutral-300 border border-[#1E293B]'
+                        }`}
+                      >
+                        CPF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForcedPixType('phone')}
+                        className={`px-2 py-0.5 rounded-lg font-bold cursor-pointer ${
+                          detectedEdit.type === 'phone'
+                            ? 'bg-[#00BFFF] text-black'
+                            : 'bg-[#111827] text-neutral-300 border border-[#1E293B]'
+                        }`}
+                      >
+                        Celular (+55)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {showQrPreviewInEdit && (
+                <div className="bg-[#0A0E17] border border-[#1E293B] rounded-2xl p-3 space-y-3">
+                  {editPreviewUrl ? (
+                    <>
+                      <img
+                        src={editPreviewUrl}
+                        alt="Prévia Plaquinha"
+                        className="w-full aspect-square rounded-xl object-cover bg-black"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadStandaloneQr(editingPlaque)}
+                        className="w-full py-2 px-3 bg-[#111827] hover:bg-[#1E293B] text-white border border-[#1E293B] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-[#00BFFF]" />
+                        <span>Baixar QR Code (PNG)</span>
+                      </button>
+                    </>
+                  ) : (
+                    <div className="aspect-square flex items-center justify-center text-xs text-neutral-500">
+                      <RefreshCw className="w-5 h-5 animate-spin text-[#00BFFF]" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {brCheck && (
+                <div className="bg-[#0A0E17] border border-[#1E293B] rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowBrCodeInspector(!showBrCodeInspector)}
+                    className="w-full px-3 py-2 flex items-center justify-between text-[11px] font-bold text-neutral-300 hover:text-white cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <QrCode className="w-3.5 h-3.5 text-[#00BFFF]" />
+                      <span>
+                        Inspecionar BR Code ({brCheck.valid ? 'EMV & CRC16 OK' : 'Inválido'})
+                      </span>
+                    </span>
+                    {showBrCodeInspector ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  {showBrCodeInspector && (
+                    <div className="p-3 border-t border-[#1E293B] space-y-2 text-[10px]">
+                      <div className="grid grid-cols-2 gap-1.5 text-neutral-400">
+                        <div>
+                          Chave/Loc:{' '}
+                          <strong className="text-white font-mono break-all">
+                            {brCheck.details.keyOrLocation}
+                          </strong>
+                        </div>
+                        <div>
+                          TxID (62.05):{' '}
+                          <strong className="text-white font-mono">{brCheck.details.txId}</strong>
+                        </div>
+                        <div>
+                          CRC16:{' '}
+                          <strong
+                            className={
+                              brCheck.valid ? 'text-emerald-400 font-mono' : 'text-red-400 font-mono'
+                            }
+                          >
+                            {brCheck.details.crc}
+                          </strong>
+                        </div>
+                        <div>
+                          Tipo:{' '}
+                          <strong className="text-white">
+                            {brCheck.details.isDynamic ? 'Dinâmico (12)' : 'Estático (11)'}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="p-2 bg-black/60 rounded-lg font-mono text-[10px] text-neutral-300 break-all border border-[#1E293B]">
+                        {liveBrCode}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(liveBrCode);
+                          setCopiedBrCode(true);
+                          setTimeout(() => setCopiedBrCode(false), 2000);
+                        }}
+                        className="w-full py-1.5 px-3 bg-[#111827] hover:bg-[#1E293B] text-[#00BFFF] border border-[#1E293B] rounded-lg font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {copiedBrCode ? (
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                        <span>
+                          {copiedBrCode ? 'Copia e Cola copiado!' : 'Copiar Pix Copia e Cola'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {editingPlaque.history && editingPlaque.history.length > 0 && (
+                <div className="bg-[#0A0E17] border border-[#1E293B] rounded-xl p-3 space-y-1.5 max-h-28 overflow-y-auto">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-neutral-400">
+                    <History className="w-3 h-3 text-[#00BFFF]" />
+                    <span>Histórico de Vinculação</span>
+                  </div>
+                  {editingPlaque.history.slice(-4).reverse().map((h, idx) => (
+                    <div key={idx} className="text-[10px] text-neutral-400 flex justify-between gap-2">
+                      <span className="truncate">{h.note || h.pixKey || 'Sem chave'}</span>
+                      <span className="font-mono text-neutral-500 shrink-0">
+                        {h.updatedAt ? new Date(h.updatedAt).toLocaleDateString('pt-BR') : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={handleSaveEditedPlaque}
+                  className="flex-1 py-2.5 px-4 bg-gradient-to-r from-[#00BFFF] to-[#087CFF] hover:from-[#38BDF8] hover:to-[#00BFFF] text-black font-black text-xs rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingEdit ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  )}
+                  <span>Salvar alteração</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQrPreviewInEdit(!showQrPreviewInEdit)}
+                  className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-white border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#00BFFF]" />
+                  <span>{showQrPreviewInEdit ? 'Ocultar Prévia' : 'Visualizar QR Code'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPlaque(null);
+                    setForcedPixType(undefined);
+                  }}
+                  className="py-2.5 px-4 bg-[#0A0E17] hover:bg-[#1E293B] text-neutral-300 border border-[#1E293B] font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Voltar</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

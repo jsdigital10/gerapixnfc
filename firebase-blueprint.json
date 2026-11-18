@@ -45,7 +45,9 @@
         "modelId": { "type": "string" },
         "modelSnapshot": { "type": "object" },
         "pixStatus": { "type": "string", "enum": ["unlinked", "linked"] },
+        "qrState": { "type": "string", "enum": ["unlinked", "static_reprint_required", "dynamic_psp_ready", "dynamic_psp_unsupported"] },
         "pspSyncStatus": { "type": "string", "enum": ["pending_psp", "synced_psp", "error"] },
+        "pspErrorMessage": { "type": "string" },
         "pspLocationUrl": { "type": "string" },
         "pixType": { "type": "string" },
         "pixKey": { "type": "string" },
@@ -89,6 +91,7 @@
       "properties": {
         "provider": { "type": "string", "enum": ["efi", "asaas", "mercadopago", "openpix", "custom_bacen"] },
         "enabled": { "type": "boolean" },
+        "supportsReceiverSwap": { "type": "boolean" },
         "apiEndpoint": { "type": "string" },
         "environment": { "type": "string", "enum": ["sandbox", "production"] },
         "defaultReceiverName": { "type": "string", "maxLength": 25 },
